@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import { completeFirstTimeSetup } from '../lib/firestore-setup';
-import { auth } from '../lib/firebase';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Loader2, CheckCircle2, Heart, Shield, Info, ArrowLeft, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import srbLogo from "../../assets/4a75b62a01df7e8cfb0ca5e95cb4075dd831b41b.png";
 
 interface FirstTimeSetupProps {
   onComplete: () => void;
