@@ -22,6 +22,7 @@ import {
   Plus,
   Trash2,
   WifiOff,
+  Activity,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MedicalCertificateModal } from './MedicalCertificateModal';
@@ -40,6 +41,19 @@ interface SelectedMedicine {
   unit: string;
   availableStock: number;
 }
+
+// BMI calculation and category functions
+const computeBMI = (height: number, weight: number): number | null => {
+  if (!height || !weight || height <= 0 || weight <= 0) return null;
+  return Math.round((weight / Math.pow(height / 100, 2)) * 10) / 10;
+};
+
+const getBMICategory = (bmi: number) => {
+  if (bmi < 18.5) return { label: 'Underweight', color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200', badge: 'bg-blue-50 text-blue-700 border-blue-200' };
+  if (bmi < 25) return { label: 'Normal', color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+  if (bmi < 30) return { label: 'Overweight', color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200', badge: 'bg-amber-50 text-amber-700 border-amber-200' };
+  return { label: 'Obese', color: 'text-red-600', bg: 'bg-red-50 border-red-200', badge: 'bg-red-50 text-red-700 border-red-200' };
+};
 
 export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProps) {
   const [loading, setLoading] = useState(false);
@@ -73,6 +87,13 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
   const [selectedStudentAllergies, setSelectedStudentAllergies] = useState<string[]>([]);
   const [selectedStudentMedicalConditions, setSelectedStudentMedicalConditions] = useState<string[]>([]);
   const [selectedStudentImmunizations, setSelectedStudentImmunizations] = useState<string[]>([]);
+  
+  // BMI state
+  const [selectedStudentBMI, setSelectedStudentBMI] = useState<number | null>(null);
+  const [selectedStudentHeight, setSelectedStudentHeight] = useState<number | null>(null);
+  const [selectedStudentWeight, setSelectedStudentWeight] = useState<number | null>(null);
+  const [selectedStudentAge, setSelectedStudentAge] = useState<number | null>(null);
+  const [selectedStudentSex, setSelectedStudentSex] = useState<string>('');
 
   useEffect(() => {
     loadStudents();
@@ -184,6 +205,25 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
     setSelectedStudentAllergies(student.allergies || []);
     setSelectedStudentMedicalConditions(student.medicalConditions || []);
     setSelectedStudentImmunizations(student.immunizations || []);
+    
+    // Set BMI information
+    const height = student.height || null;
+    const weight = student.weight || null;
+    const age = student.age || null;
+    const sex = student.sex || '';
+    
+    setSelectedStudentHeight(height);
+    setSelectedStudentWeight(weight);
+    setSelectedStudentAge(age);
+    setSelectedStudentSex(sex);
+    
+    // Compute BMI if height and weight are available
+    if (height && weight) {
+      const bmi = computeBMI(height, weight);
+      setSelectedStudentBMI(bmi);
+    } else {
+      setSelectedStudentBMI(null);
+    }
   };
 
   const handleMedicineSelect = (medicine: InventoryItem) => {
@@ -508,12 +548,59 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                       setSelectedStudentAllergies([]);
                       setSelectedStudentMedicalConditions([]);
                       setSelectedStudentImmunizations([]);
+                      setSelectedStudentBMI(null);
+                      setSelectedStudentHeight(null);
+                      setSelectedStudentWeight(null);
+                      setSelectedStudentAge(null);
+                      setSelectedStudentSex('');
                     }}
                     className="text-red-600 hover:bg-red-50"
                   >
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
+
+                {/* BMI Information - Added here */}
+                {(selectedStudentBMI !== null || selectedStudentHeight || selectedStudentWeight || selectedStudentAge || selectedStudentSex) && (
+                  <div className="mt-4 pt-4 border-t border-emerald-200">
+                    <div className={`rounded-xl border p-3 ${
+                      selectedStudentBMI !== null 
+                        ? getBMICategory(selectedStudentBMI).bg 
+                        : 'bg-slate-50 border-slate-200'
+                    }`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <Activity className={`h-4 w-4 ${
+                          selectedStudentBMI !== null 
+                            ? getBMICategory(selectedStudentBMI).color 
+                            : 'text-slate-500'
+                        }`} />
+                        <p className="text-xs font-semibold text-slate-700">BMI Information</p>
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        {selectedStudentBMI !== null && (
+                          <div className="flex items-baseline gap-1.5">
+                            <span className={`text-2xl font-bold ${
+                              getBMICategory(selectedStudentBMI).color
+                            }`}>
+                              {selectedStudentBMI}
+                            </span>
+                            <Badge variant="outline" className={`text-xs ${
+                              getBMICategory(selectedStudentBMI).badge
+                            }`}>
+                              {getBMICategory(selectedStudentBMI).label}
+                            </Badge>
+                          </div>
+                        )}
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600 mt-1">
+                          {selectedStudentHeight && <span>Height: <strong>{selectedStudentHeight} cm</strong></span>}
+                          {selectedStudentWeight && <span>Weight: <strong>{selectedStudentWeight} kg</strong></span>}
+                          {selectedStudentAge && <span>Age: <strong>{selectedStudentAge} yrs</strong></span>}
+                          {selectedStudentSex && <span>Sex: <strong>{selectedStudentSex}</strong></span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Allergies, Medical Conditions, and Immunizations */}
                 {(selectedStudentAllergies.length > 0 || selectedStudentMedicalConditions.length > 0 || selectedStudentImmunizations.length > 0) && (
