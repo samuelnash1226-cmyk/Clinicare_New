@@ -1,0 +1,104 @@
+================================================================================
+🔥 FIREBASE SETUP - FMCSMS (DO THIS NOW - 1 MINUTE)
+================================================================================
+
+1. Open: https://console.firebase.google.com
+2. Select project: srb-clinic-care
+3. Click: Firestore Database (left sidebar)
+4. Find or create: settings collection
+5. Click: Add document
+
+   Document ID: fmcsms
+
+   Field 1:
+   - Name: apiKey
+   - Type: string
+   - Value: [YOUR_FMCSMS_API_KEY]
+
+   Field 2:
+   - Name: senderName
+   - Type: string
+   - Value: NDKC Clinic
+
+6. Click: Save
+
+DONE! ✓
+
+================================================================================
+📱 TEST IT NOW (30 SECONDS)
+================================================================================
+
+1. User Management → Find a parent → Edit
+2. Contact Number: 09516495356 (your phone)
+3. Save
+4. Log a clinic visit for their student
+5. Enable "Notify Parent Immediately"
+6. Submit
+7. CHECK YOUR PHONE! 📱
+
+You'll get BOTH email AND SMS with improved professional message!
+
+================================================================================
+✅ SUCCESS INDICATORS
+================================================================================
+
+Press F12 in browser to see:
+
+✅ Email sent successfully
+✅ ✅ ✅ SMS sent successfully via FMCSMS!
+✅ Professional formatted SMS message
+✅ Notification record created
+
+Both notifications arrive within seconds! 🎉
+
+================================================================================
+📝 SMS MESSAGE FORMAT (PROFESSIONAL)
+================================================================================
+
+The SMS now includes:
+- Professional greeting with parent name
+- Student name and grade
+- Symptoms and treatment details
+- Date/Time of visit
+- Nurse name
+- Nurse notes (if any)
+- Pickup status (YES/NO)
+- Professional signature
+
+Example:
+"NDKC Clinic Visit Alert
+
+Dear John Sanchez,
+
+Your child Maria Garcia (2nd Year College) visited the clinic.
+
+Symptoms: Headache, Fever
+Treatment: Paracetamol given, rest advised
+Date/Time: 5/2/2026, 2:30 PM
+Nurse: Nurse Joy
+
+Nurse's Notes: Monitor temperature, return if fever persists
+
+Needs to be fetched: YES - Please fetch immediately
+
+Best regards,
+NDKC ClinicCare System"
+
+================================================================================
+⚠️ IMPORTANT
+================================================================================
+
+SMS Provider: FMCSMS (https://fortmed.org/web/FMCSMS/api/messages.php) ✓
+Email system: NOT TOUCHED - works exactly as before ✓
+SMS system: UPGRADED - Professional format via FMCSMS ✓
+Phone field: Already in User Management & Bulk Add ✓
+All imports: Fixed - no more version numbers ✓
+VS Code integration: Works perfectly ✓
+Inventory: Min Stock Level removed ✓
+Stock Quantity: No longer shows 0 when empty ✓
+Login: "Remember for 30 days" removed ✓
+Student Portal: Shows visit history ✓
+
+================================================================================
+
+THAT'S IT! ADD THE FIREBASE DOCUMENT WITH YOUR FMCSMS API KEY AND GO! 🚀

@@ -1,0 +1,192 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===========================
+    // HELPER FUNCTIONS
+    // ===========================
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Get user role from users collection
+    function getUserRole(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.role;
+    }
+    
+    // Check if user is admin
+    function isAdmin() {
+      return isAuthenticated() && getUserRole(request.auth.uid) == 'admin';
+    }
+    
+    // Check if user is nurse
+    function isNurse() {
+      return isAuthenticated() && getUserRole(request.auth.uid) == 'nurse';
+    }
+    
+    // Check if user is parent
+    function isParent() {
+      return isAuthenticated() && getUserRole(request.auth.uid) == 'parent';
+    }
+    
+    // Check if user is student
+    function isStudent() {
+      return isAuthenticated() && getUserRole(request.auth.uid) == 'student';
+    }
+    
+    // Check if user is admin or nurse
+    function isAdminOrNurse() {
+      return isAuthenticated() && (getUserRole(request.auth.uid) == 'admin' || getUserRole(request.auth.uid) == 'nurse');
+    }
+    
+    // ===========================
+    // USERS COLLECTION
+    // ===========================
+    match /users/{userId} {
+      // Anyone authenticated can read users (needed for lookups)
+      allow read: if isAuthenticated();
+      
+      // Only admins can create new users
+      allow create: if isAdmin();
+      
+      // Users can update their own profile, admins can update anyone
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      
+      // Only admins can delete users
+      allow delete: if isAdmin();
+    }
+    
+    // ===========================
+    // STUDENTS COLLECTION
+    // ===========================
+    match /students/{studentId} {
+      // Everyone authenticated can read students (for visit logging)
+      allow read: if isAuthenticated();
+      
+      // Admins and nurses can create students
+      allow create: if isAdminOrNurse();
+      
+      // Admins and nurses can update students
+      allow update: if isAdminOrNurse();
+      
+      // Only admins can delete students
+      allow delete: if isAdmin();
+    }
+    
+    // ===========================
+    // CLINIC VISITS COLLECTION
+    // ===========================
+    match /clinicVisits/{visitId} {
+      // Everyone authenticated can read visits
+      allow read: if isAuthenticated();
+      
+      // Admins and nurses can create visits
+      allow create: if isAdminOrNurse();
+      
+      // Admins and nurses can update visits
+      allow update: if isAdminOrNurse();
+      
+      // Only admins can delete visits
+      allow delete: if isAdmin();
+    }
+    
+    // ===========================
+    // INVENTORY COLLECTION (NEW)
+    // ===========================
+    match /inventory/{itemId} {
+      // Everyone authenticated can read inventory
+      allow read: if isAuthenticated();
+      
+      // Admins and nurses can create items
+      allow create: if isAdminOrNurse();
+      
+      // Admins and nurses can update items
+      allow update: if isAdminOrNurse();
+      
+      // Only admins can delete items
+      allow delete: if isAdmin();
+    }
+    
+    // ===========================
+    // INVENTORY TRANSACTIONS (NEW)
+    // ===========================
+    match /inventoryTransactions/{transactionId} {
+      // Everyone authenticated can read transactions
+      allow read: if isAuthenticated();
+      
+      // Admins and nurses can create transactions
+      allow create: if isAdminOrNurse();
+      
+      // No updates or deletes allowed (audit trail)
+      allow update: if false;
+      allow delete: if false;
+    }
+    
+    // ===========================
+    // ACTIVITY LOGS COLLECTION
+    // ===========================
+    match /activityLogs/{logId} {
+      // Only admins can read logs
+      allow read: if isAdmin();
+      
+      // System can create logs (any authenticated user)
+      allow create: if isAuthenticated();
+      
+      // No updates or deletes (audit trail)
+      allow update: if false;
+      allow delete: if false;
+    }
+    
+    // ===========================
+    // SETTINGS COLLECTION
+    // ===========================
+    match /settings/{settingId} {
+      // Everyone authenticated can read settings
+      allow read: if isAuthenticated();
+      
+      // Only admins can write settings
+      allow create, update: if isAdmin();
+      
+      // Only admins can delete settings
+      allow delete: if isAdmin();
+    }
+    
+    // ===========================
+    // PARENT-STUDENT LINKS
+    // ===========================
+    match /parentStudentLinks/{linkId} {
+      // Everyone authenticated can read links (for notifications)
+      allow read: if isAuthenticated();
+      
+      // Admins can manage links
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // ===========================
+    // ALLERGIES COLLECTION
+    // ===========================
+    match /allergies/{allergyId} {
+      // Everyone authenticated can read allergies
+      allow read: if isAuthenticated();
+      
+      // Admins and nurses can create allergies
+      allow create: if isAdminOrNurse();
+      
+      // Admins and nurses can update allergies
+      allow update: if isAdminOrNurse();
+      
+      // Only admins can delete allergies
+      allow delete: if isAdmin();
+    }
+    
+    // ===========================
+    // CATCH-ALL (DENY EVERYTHING ELSE)
+    // ===========================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

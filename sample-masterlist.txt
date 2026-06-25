@@ -1,0 +1,10 @@
+samuel sanchez | samuelnash@gmail.com | 2022-345 | None | John Sanchez (john@email.com), Maria Sanchez (maria@email.com)
+maria garcia | maria.garcia@gmail.com | 2022-346 | Peanuts, Penicillin | Pedro Garcia (pedro@email.com)
+john doe | john.doe@gmail.com | 2022-347 | None | Jane Doe (jane@email.com), Bob Doe (bob@email.com)
+emma wilson | emma@student.com | 2022-348 | Shellfish | Sarah Wilson (sarah@email.com)
+alex johnson | alex@student.com | 2023-349 | None | Mike Johnson (mike@email.com)
+sophia lee | sophia@student.com | 2023-350 | Dairy | Lisa Lee (lisa@email.com)
+liam brown | liam@student.com | 2024-351 | None | Tom Brown (tom@email.com), Amy Brown (amy@email.com)
+olivia davis | olivia@student.com | 2024-352 | Eggs | Susan Davis (susan@email.com)
+noah miller | noah@student.com | 2025-353 | None | None
+ava taylor | ava@student.com | 2025-354 | Nuts | Chris Taylor (chris@email.com)
