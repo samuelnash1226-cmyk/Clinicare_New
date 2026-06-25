@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect } from 'react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import ndkcLogo from 'figma:asset/4159ba6c115a024c404feb3e08bd2342361c9929.png';
+import ndkcLogo from "../../assets/4159ba6c115a024c404feb3e08bd2342361c9929.png";
 
 interface SidebarProps {
   currentView: string;
