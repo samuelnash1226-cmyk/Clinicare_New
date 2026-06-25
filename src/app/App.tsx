@@ -23,7 +23,6 @@ import { InventoryDashboard } from "./components/InventoryDashboard";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { Toaster } from "./components/ui/sonner";
 import { Loader2, Heart } from "lucide-react";
-import srbLogo from "../assets/4a75b62a01df7e8cfb0ca5e95cb4075dd831b41b.png";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);

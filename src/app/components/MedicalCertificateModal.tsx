@@ -12,9 +12,9 @@ import {
   SelectValue,
 } from './ui/select';
 
-const srbLogo = 'figma:asset/4a75b62a01df7e8cfb0ca5e95cb4075dd831b41b.png';
+const srbLogo = '"../../assets/4a75b62a01df7e8cfb0ca5e95cb4075dd831b41b.png"';
 // Using SRB logo for both since NDKC logo asset is not provided
-const ndkcLogo = 'figma:asset/4a75b62a01df7e8cfb0ca5e95cb4075dd831b41b.png';
+const ndkcLogo = '"../../assets/4a75b62a01df7e8cfb0ca5e95cb4075dd831b41b.png"';
 
 interface MedicalCertificateModalProps {
   visitData: {

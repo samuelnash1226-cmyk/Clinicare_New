@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { toast } from 'sonner';
-import srbLogo from 'figma:asset/4a75b62a01df7e8cfb0ca5e95cb4075dd831b41b.png';
+import srbLogo from '"../../assets/4a75b62a01df7e8cfb0ca5e95cb4075dd831b41b.png"';
 import campusImage from '../imports/image-1.png';
 
 interface LoginPageProps {
