@@ -258,9 +258,13 @@ export default function App() {
             {currentView === "users" &&
               userRole === "admin" && <UserManagement />}
 
-            {currentView === "studentcards" &&
-              (userRole === "admin" ||
-                userRole === "nurse") && <StudentCard />}
+            {currentView === "studentcards" && (
+              <StudentCard
+                userRole={userRole}
+                userEmail={user.email || ""}
+                studentIds={studentIds}
+              />
+            )}
 
             {currentView === "history" && <VisitHistory />}
 

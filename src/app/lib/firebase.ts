@@ -4,9 +4,9 @@ import { getFirestore, Firestore, enableIndexedDbPersistence, enableMultiTabInde
 
 const firebaseConfig = {
   apiKey: "AIzaSyDxWs52-V4mCQDv9cKY7s5fzzv4ltUUaWc",
-  authDomain: "ClinicCare-57bc2.firebaseapp.com",
-  projectId: "ClinicCare-57bc2",
-  storageBucket: "ClinicCare-57bc2.firebasestorage.app",
+  authDomain: "clinicare-57bc2.firebaseapp.com",
+  projectId: "clinicare-57bc2",
+  storageBucket: "clinicare-57bc2.firebasestorage.app",
   messagingSenderId: "69249805112",
   appId: "1:69249805112:web:f4e7165320b45886ed6fcd",
   measurementId: "G-ZQ2M0V287Q"
