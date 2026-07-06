@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { collection, addDoc, setDoc, doc, getDocs, query, where } from 'firebase/firestore';
+import { collection, addDoc, setDoc, doc, getDocs, getDoc, query, where } from 'firebase/firestore';
 import { db, secondaryAuth } from '../lib/firebase';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
@@ -37,6 +37,21 @@ interface ProcessResult {
   error?: string;
 }
 
+interface SiblingGroup {
+  parentName: string;
+  parentEmail: string;
+  students: string[];
+  existsInDB: boolean;
+}
+
+interface BatchPreview {
+  siblingGroups: SiblingGroup[];
+  totalStudents: number;
+  totalNewParents: number;
+  totalExistingParents: number;
+  duplicateStudentEmails: string[];
+}
+
 export function BulkAddUsersModal({ open, onOpenChange, onSuccess }: BulkAddUsersModalProps) {
   const [fullNames, setFullNames] = useState('');
   const [emails, setEmails] = useState('');
@@ -55,9 +70,10 @@ export function BulkAddUsersModal({ open, onOpenChange, onSuccess }: BulkAddUser
 
   const [detectedCount, setDetectedCount] = useState(0);
   const [processing, setProcessing] = useState(false);
-  const [currentStep, setCurrentStep] = useState<'input' | 'processing' | 'results'>('input');
+  const [currentStep, setCurrentStep] = useState<'input' | 'preview' | 'processing' | 'results'>('input');
   const [processResults, setProcessResults] = useState<ProcessResult[]>([]);
   const [progress, setProgress] = useState(0);
+  const [batchPreview, setBatchPreview] = useState<BatchPreview | null>(null);
 
   const DEFAULT_PASSWORD = 'ndkc123';
 
@@ -139,6 +155,64 @@ John Doe,john.doe@gmail.com,1st Year College,2022-347,None,None,None,170,65,18,M
     return true;
   };
 
+  // ── Pre-flight: scan batch and detect siblings / existing parents ──────────
+  const parseAndPreview = async () => {
+    if (!validateInputs()) return;
+
+    const fullNameLines = fullNames.split('\n').filter(line => line.trim());
+    const emailLines = emails.split('\n').filter(line => line.trim());
+    const parentNameLines = parentNames.split('\n');
+    const parentEmailLines = parentEmails.split('\n');
+
+    // Detect duplicate student emails within this batch
+    const studentEmailsSeen = new Set<string>();
+    const duplicateStudentEmails: string[] = [];
+    for (const email of emailLines) {
+      const e = email.trim().toLowerCase();
+      if (studentEmailsSeen.has(e)) {
+        if (!duplicateStudentEmails.includes(e)) duplicateStudentEmails.push(e);
+      }
+      studentEmailsSeen.add(e);
+    }
+
+    // Group students by parent email to find siblings
+    const parentMap = new Map<string, { name: string; students: string[] }>();
+    for (let i = 0; i < fullNameLines.length; i++) {
+      const pEmail = parentEmailLines[i]?.trim().toLowerCase() || '';
+      const pName = parentNameLines[i]?.trim() || '';
+      const sName = fullNameLines[i].trim();
+      if (pEmail && pName) {
+        if (parentMap.has(pEmail)) {
+          parentMap.get(pEmail)!.students.push(sName);
+        } else {
+          parentMap.set(pEmail, { name: pName, students: [sName] });
+        }
+      }
+    }
+
+    // Check each unique parent email against Firestore
+    const siblingGroups: SiblingGroup[] = [];
+    for (const [pEmail, info] of parentMap.entries()) {
+      const q = query(collection(db, 'users'), where('email', '==', pEmail));
+      const snap = await getDocs(q);
+      siblingGroups.push({
+        parentName: info.name,
+        parentEmail: pEmail,
+        students: info.students,
+        existsInDB: !snap.empty,
+      });
+    }
+
+    setBatchPreview({
+      siblingGroups,
+      totalStudents: fullNameLines.length,
+      totalNewParents: siblingGroups.filter(g => !g.existsInDB).length,
+      totalExistingParents: siblingGroups.filter(g => g.existsInDB).length,
+      duplicateStudentEmails,
+    });
+    setCurrentStep('preview');
+  };
+
   const processBulkImport = async () => {
     if (!validateInputs()) return;
 
@@ -164,6 +238,9 @@ John Doe,john.doe@gmail.com,1st Year College,2022-347,None,None,None,170,65,18,M
     const results: ProcessResult[] = [];
     const totalOperations = fullNameLines.length * 2;
     let completedOperations = 0;
+    // In-memory cache: parentEmail → Firestore UID
+    // Prevents duplicate auth creation for siblings in the same import batch
+    const parentCache = new Map<string, string>();
 
     try {
       for (let i = 0; i < fullNameLines.length; i++) {
@@ -266,55 +343,77 @@ John Doe,john.doe@gmail.com,1st Year College,2022-347,None,None,None,170,65,18,M
           // Create parent if provided
           if (parentName && parentEmail) {
             try {
-              const parentQuery = query(
-                collection(db, 'users'),
-                where('email', '==', parentEmail)
-              );
-              const existingParent = await getDocs(parentQuery);
+              const normalizedParentEmail = parentEmail.toLowerCase();
 
-              if (existingParent.empty) {
-                const parentCredential = await createUserWithEmailAndPassword(
-                  secondaryAuth,
-                  parentEmail,
-                  DEFAULT_PASSWORD
-                );
-                const parentUid = parentCredential.user.uid;
-                await secondaryAuth.signOut();
-
-                await setDoc(doc(db, 'users', parentUid), {
-                  uid: parentUid,
-                  email: parentEmail,
-                  name: parentName,
-                  role: 'parent',
-                  phone: parentPhone || '',
-                  studentIds: [studentRef.id],
-                  createdAt: new Date(),
-                });
-
+              if (parentCache.has(normalizedParentEmail)) {
+                // ── SIBLING DETECTED: parent already processed in this batch ──
+                const cachedUid = parentCache.get(normalizedParentEmail)!;
+                const parentDocRef = doc(db, 'users', cachedUid);
+                const parentDocSnap = await getDoc(parentDocRef);
+                const currentStudentIds = parentDocSnap.data()?.studentIds || [];
+                if (!currentStudentIds.includes(studentRef.id)) {
+                  await setDoc(parentDocRef, { studentIds: [...currentStudentIds, studentRef.id] }, { merge: true });
+                }
                 results.push({
                   success: true,
                   type: 'parent',
                   name: parentName,
                   email: parentEmail,
+                  error: '🔗 Sibling linked to existing parent',
                 });
               } else {
-                const parentDoc = existingParent.docs[0];
-                const currentStudentIds = parentDoc.data().studentIds || [];
-                if (!currentStudentIds.includes(studentRef.id)) {
-                  await setDoc(
-                    doc(db, 'users', parentDoc.id),
-                    { studentIds: [...currentStudentIds, studentRef.id] },
-                    { merge: true }
-                  );
-                }
+                // ── New parent or pre-existing parent not yet seen this batch ──
+                const parentQuery = query(
+                  collection(db, 'users'),
+                  where('email', '==', normalizedParentEmail)
+                );
+                const existingParent = await getDocs(parentQuery);
 
-                results.push({
-                  success: true,
-                  type: 'parent',
-                  name: parentName,
-                  email: parentEmail,
-                  error: 'Already exists (linked)',
-                });
+                if (existingParent.empty) {
+                  const parentCredential = await createUserWithEmailAndPassword(
+                    secondaryAuth,
+                    parentEmail,
+                    DEFAULT_PASSWORD
+                  );
+                  const parentUid = parentCredential.user.uid;
+                  await secondaryAuth.signOut();
+
+                  await setDoc(doc(db, 'users', parentUid), {
+                    uid: parentUid,
+                    email: parentEmail,
+                    name: parentName,
+                    role: 'parent',
+                    phone: parentPhone || '',
+                    studentIds: [studentRef.id],
+                    createdAt: new Date(),
+                  });
+
+                  parentCache.set(normalizedParentEmail, parentUid);
+                  results.push({
+                    success: true,
+                    type: 'parent',
+                    name: parentName,
+                    email: parentEmail,
+                  });
+                } else {
+                  const parentDoc = existingParent.docs[0];
+                  parentCache.set(normalizedParentEmail, parentDoc.id);
+                  const currentStudentIds = parentDoc.data().studentIds || [];
+                  if (!currentStudentIds.includes(studentRef.id)) {
+                    await setDoc(
+                      doc(db, 'users', parentDoc.id),
+                      { studentIds: [...currentStudentIds, studentRef.id] },
+                      { merge: true }
+                    );
+                  }
+                  results.push({
+                    success: true,
+                    type: 'parent',
+                    name: parentName,
+                    email: parentEmail,
+                    error: 'Already exists (linked)',
+                  });
+                }
               }
             } catch (parentError: any) {
               results.push({
@@ -381,6 +480,7 @@ John Doe,john.doe@gmail.com,1st Year College,2022-347,None,None,None,170,65,18,M
     setCurrentStep('input');
     setProcessResults([]);
     setProgress(0);
+    setBatchPreview(null);
   };
 
   const handleClose = () => {
@@ -706,12 +806,142 @@ John Doe,john.doe@gmail.com,1st Year College,2022-347,None,None,None,170,65,18,M
                   Cancel
                 </Button>
                 <Button
-                  onClick={processBulkImport}
+                  onClick={parseAndPreview}
                   disabled={processing || detectedCount === 0}
                   className="flex-1 h-14 text-base bg-gradient-to-r from-ndkc-green to-emerald-600 text-white"
                 >
+                  <Users className="h-5 w-5 mr-2" />
+                  Preview {detectedCount} Student{detectedCount !== 1 ? 's' : ''}
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Preview / Sibling Detection Step */}
+          {currentStep === 'preview' && batchPreview && (
+            <motion.div
+              key="preview"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="space-y-6"
+            >
+              {/* Summary Cards */}
+              <div className="grid grid-cols-3 gap-4">
+                <Card className="border-emerald-200 bg-emerald-50">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-3xl font-bold text-emerald-900">{batchPreview.totalStudents}</p>
+                    <p className="text-sm text-emerald-700 mt-1">Students</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-blue-200 bg-blue-50">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-3xl font-bold text-blue-900">{batchPreview.totalNewParents}</p>
+                    <p className="text-sm text-blue-700 mt-1">New Parents</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-amber-200 bg-amber-50">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-3xl font-bold text-amber-900">{batchPreview.totalExistingParents}</p>
+                    <p className="text-sm text-amber-700 mt-1">Existing (will link)</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Duplicate student email warning — blocks confirmation */}
+              {batchPreview.duplicateStudentEmails.length > 0 && (
+                <Alert className="border-red-300 bg-red-50">
+                  <AlertCircle className="h-4 w-4 text-red-600" />
+                  <AlertDescription className="text-red-900">
+                    <strong>⚠️ Duplicate student emails in this batch — fix before continuing:</strong>
+                    <ul className="mt-2 list-disc list-inside space-y-1">
+                      {batchPreview.duplicateStudentEmails.map(e => (
+                        <li key={e} className="font-mono text-sm">{e}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Siblings detected */}
+              {batchPreview.siblingGroups.filter(g => g.students.length > 1).length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                    <Users className="h-5 w-5 text-ndkc-green" />
+                    Siblings Detected — one parent account will be shared
+                  </h3>
+                  {batchPreview.siblingGroups
+                    .filter(g => g.students.length > 1)
+                    .map((group, idx) => (
+                      <div key={idx} className="p-4 rounded-xl border-2 border-emerald-200 bg-emerald-50">
+                        <div className="flex flex-wrap items-center gap-2 mb-3">
+                          <Badge className={group.existsInDB ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}>
+                            {group.existsInDB ? 'Existing Parent' : 'New Parent'}
+                          </Badge>
+                          <span className="font-semibold text-slate-900">{group.parentName}</span>
+                          <span className="text-sm text-slate-500">({group.parentEmail})</span>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-2">Children in this batch:</p>
+                        <div className="space-y-1">
+                          {group.students.map((s, i) => (
+                            <div key={i} className="flex items-center gap-2 text-sm text-slate-700">
+                              <CheckCircle2 className="h-4 w-4 text-ndkc-green flex-shrink-0" />
+                              {s}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {/* Existing parents that will be re-linked */}
+              {batchPreview.siblingGroups.filter(g => g.existsInDB && g.students.length === 1).length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+                    <Info className="h-5 w-5 text-blue-500" />
+                    Existing Parent Accounts — new student will be linked automatically
+                  </h3>
+                  {batchPreview.siblingGroups
+                    .filter(g => g.existsInDB && g.students.length === 1)
+                    .map((group, idx) => (
+                      <div key={idx} className="p-3 rounded-lg border border-blue-200 bg-blue-50 flex flex-wrap items-center gap-2">
+                        <Badge className="bg-blue-100 text-blue-700">Existing</Badge>
+                        <span className="font-medium text-slate-900">{group.parentName}</span>
+                        <span className="text-sm text-slate-500">{group.parentEmail}</span>
+                        <span className="text-xs text-slate-400 ml-auto">→ will link: {group.students[0]}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {/* All clear message */}
+              {batchPreview.siblingGroups.filter(g => g.students.length > 1).length === 0 &&
+                batchPreview.siblingGroups.filter(g => g.existsInDB).length === 0 &&
+                batchPreview.duplicateStudentEmails.length === 0 && (
+                <Alert className="border-emerald-200 bg-emerald-50">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  <AlertDescription className="text-emerald-900">
+                    ✅ No duplicates or siblings detected — safe to import!
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex gap-4 pt-4">
+                <Button
+                  onClick={() => setCurrentStep('input')}
+                  variant="outline"
+                  className="flex-1 h-14 text-base"
+                >
+                  ← Back to Edit
+                </Button>
+                <Button
+                  onClick={processBulkImport}
+                  disabled={batchPreview.duplicateStudentEmails.length > 0}
+                  className="flex-1 h-14 text-base bg-gradient-to-r from-ndkc-green to-emerald-600 text-white disabled:opacity-50"
+                >
                   <Upload className="h-5 w-5 mr-2" />
-                  Create {detectedCount} Student{detectedCount !== 1 ? 's' : ''}
+                  Confirm & Create {batchPreview.totalStudents} Student{batchPreview.totalStudents !== 1 ? 's' : ''}
                 </Button>
               </div>
             </motion.div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, updateDoc, doc, query, where } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc, query, where, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
@@ -73,7 +73,13 @@ const getBMICategory = (bmi: number) => {
   return             { label: 'Obese',        color: 'text-red-600',     bg: 'bg-red-50 border-red-200',      badge: 'bg-red-50 text-red-700 border-red-200' };
 };
 
-export function StudentCard() {
+interface StudentCardProps {
+  userRole: string;
+  userEmail: string;
+  studentIds?: string[];
+}
+
+export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCardProps) {
   const [students, setStudents] = useState<Student[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
@@ -95,8 +101,23 @@ export function StudentCard() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const studentsSnapshot = await getDocs(collection(db, 'students'));
-      const studentsData = studentsSnapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Student[];
+      let studentsData: Student[] = [];
+      if (userRole === 'student') {
+        const q = query(collection(db, 'students'), where('email', '==', userEmail));
+        const snapshot = await getDocs(q);
+        studentsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Student[];
+      } else if (userRole === 'parent') {
+        const validStudentIds = studentIds.filter(id => id && typeof id === 'string');
+        for (const sid of validStudentIds) {
+          const studentDoc = await getDoc(doc(db, 'students', sid));
+          if (studentDoc.exists()) {
+            studentsData.push({ id: studentDoc.id, ...studentDoc.data() } as Student);
+          }
+        }
+      } else {
+        const studentsSnapshot = await getDocs(collection(db, 'students'));
+        studentsData = studentsSnapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Student[];
+      }
 
       const usersSnapshot = await getDocs(collection(db, 'users'));
       const parents = usersSnapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter((u: any) => u.role === 'parent');
@@ -198,23 +219,33 @@ export function StudentCard() {
   return (
     <div className="space-y-6 animate-fadeIn">
       <div>
-        <h1 className="text-slate-900">Student Cards</h1>
-        <p className="mt-2 text-slate-600">View complete student information and medical details</p>
+        <h1 className="text-slate-900">
+          {userRole === 'student' ? 'My Student Card' : userRole === 'parent' ? "My Children's Health Cards" : 'Student Cards'}
+        </h1>
+        <p className="mt-2 text-slate-600">
+          {userRole === 'student' 
+            ? 'View your complete student information and medical details' 
+            : userRole === 'parent' 
+              ? 'View complete student information and medical details for your children'
+              : 'View complete student information and medical details'}
+        </p>
       </div>
 
-      <Card className="border-slate-200 bg-white shadow-sm">
-        <CardContent className="pt-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-            <Input
-              placeholder="Search by name, student ID, grade, or email..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 h-12 border-2 focus:border-ndkc-green"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      {userRole !== 'student' && userRole !== 'parent' && (
+        <Card className="border-slate-200 bg-white shadow-sm">
+          <CardContent className="pt-6">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+              <Input
+                placeholder="Search by name, student ID, grade, or email..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 h-12 border-2 focus:border-ndkc-green"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -250,15 +281,17 @@ export function StudentCard() {
                         <p className="text-sm text-slate-500 mt-0.5">ID: {student.studentId}</p>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openEdit(student)}
-                      className="h-8 w-8 p-0 text-slate-400 hover:text-ndkc-green hover:bg-emerald-50 rounded-lg"
-                      title="Edit student"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                    {(userRole === 'admin' || userRole === 'nurse') && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEdit(student)}
+                        className="h-8 w-8 p-0 text-slate-400 hover:text-ndkc-green hover:bg-emerald-50 rounded-lg"
+                        title="Edit student"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </CardHeader>
 

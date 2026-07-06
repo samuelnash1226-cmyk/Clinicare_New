@@ -56,11 +56,13 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
     : userRole === 'parent'
     ? [
         { id: 'parent', label: 'Health Records', icon: FileText, description: 'Student Health' },
+        { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
         { id: 'settings', label: 'Settings', icon: Settings, description: 'Account Settings' },
       ]
     : userRole === 'student'
     ? [
         { id: 'student', label: 'My Health', icon: GraduationCap, description: 'Health Records' },
+        { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
         { id: 'settings', label: 'Settings', icon: Settings, description: 'Account Settings' },
       ]
     : [

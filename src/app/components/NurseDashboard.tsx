@@ -18,7 +18,7 @@ import { Badge } from './ui/badge';
 import { MedicalCertificateModal } from './MedicalCertificateModal';
 
 interface NurseDashboardProps {
-  onAddVisit: () => void;
+  onAddVisit?: () => void;
   userEmail: string;
 }
 
@@ -38,22 +38,22 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
+
       const visitsRef = collection(db, 'clinicVisits');
       const q = query(
         visitsRef,
         where('timestamp', '>=', Timestamp.fromDate(today)),
         orderBy('timestamp', 'desc')
       );
-      
+
       const snapshot = await getDocs(q);
       const visitsData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       } as ClinicVisit));
-      
+
       setVisits(visitsData);
-      
+
       // Calculate most common symptom
       const symptomCounts: { [key: string]: number } = {};
       visitsData.forEach(visit => {
@@ -64,7 +64,7 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
           }
         });
       });
-      
+
       // Find the most common symptom
       let mostCommonSymptom = 'None';
       let maxCount = 0;
@@ -74,7 +74,7 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
           mostCommonSymptom = symptom.charAt(0).toUpperCase() + symptom.slice(1);
         }
       });
-      
+
       setStats({
         todayVisits: visitsData.length,
         notificationsSent: visitsData.filter(v => v.notifyParent).length,
@@ -112,13 +112,15 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
             Manage student health records and clinic visits
           </p>
         </div>
-        <Button
-          onClick={onAddVisit}
-          className="h-12 bg-gradient-to-r from-ndkc-green to-emerald-600 px-6 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40 hover:scale-[1.02]"
-        >
-          <Plus className="mr-2 h-5 w-5" />
-          Log New Visit
-        </Button>
+        {onAddVisit && (
+          <Button
+            onClick={onAddVisit}
+            className="h-12 bg-gradient-to-r from-ndkc-green to-emerald-600 px-6 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40 hover:scale-[1.02]"
+          >
+            <Plus className="mr-2 h-5 w-5" />
+            Log New Visit
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -206,7 +208,9 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
                 <Activity className="h-8 w-8 text-slate-400" />
               </div>
               <p className="mt-4 text-slate-600">No clinic visits recorded today</p>
-              <p className="mt-1 text-sm text-slate-500">Click "Log New Visit" to add a visit</p>
+              {onAddVisit && (
+                <p className="mt-1 text-sm text-slate-500">Click "Log New Visit" to add a visit</p>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -224,8 +228,8 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
                 </TableHeader>
                 <TableBody>
                   {filteredVisits.map((visit, index) => (
-                    <TableRow 
-                      key={visit.id} 
+                    <TableRow
+                      key={visit.id}
                       className="border-slate-100 transition-colors hover:bg-slate-50/50"
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
