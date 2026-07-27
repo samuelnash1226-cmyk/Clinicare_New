@@ -198,7 +198,7 @@ export default function App() {
           {/* Loading text */}
           <div className="space-y-2">
             <p className="text-slate-900">
-              Loading SRB ClinicCare...
+               Loading ClinicCare...
             </p>
             <p className="text-sm text-slate-500">
               Initializing health management system
