@@ -8,14 +8,14 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Checkbox } from './ui/checkbox';
-import { Search, User, GraduationCap, Mail, AlertCircle, Heart, Users, Pencil, Syringe, Plus, X, Activity } from 'lucide-react';
+import { Search, User, Mail, AlertCircle, Heart, Pencil, Syringe, Plus, X, Activity, Briefcase } from 'lucide-react';
 import { toast } from 'sonner';
 
-interface Student {
+interface Personnel {
   id: string;
-  studentId: string;
+  studentId: string; // employee ID is stored here
   name: string;
-  grade: string;
+  grade: string; // always 'Personnel'
   email: string;
   allergies?: string[];
   medicalConditions?: string[];
@@ -28,15 +28,8 @@ interface Student {
   createdAt: any;
 }
 
-interface ParentInfo {
-  name: string;
-  email: string;
-  phone: string;
-}
-
 interface EditFormData {
   name: string;
-  grade: string;
   studentId: string;
   height: string;
   weight: string;
@@ -52,13 +45,6 @@ interface EditFormData {
   currentImmunization: string;
 }
 
-const GRADE_OPTIONS = [
-  'Kindergarten',
-  'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-  'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12',
-  '1st Year College', '2nd Year College', '3rd Year College', '4th Year College'
-];
-
 const computeBMI = (height: string, weight: string): number | null => {
   const h = parseFloat(height);
   const w = parseFloat(weight);
@@ -73,22 +59,20 @@ const getBMICategory = (bmi: number) => {
   return             { label: 'Obese',        color: 'text-red-600',     bg: 'bg-red-50 border-red-200',      badge: 'bg-red-50 text-red-700 border-red-200' };
 };
 
-interface StudentCardProps {
+interface PersonnelCardProps {
   userRole: string;
   userEmail: string;
-  studentIds?: string[];
 }
 
-export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCardProps) {
-  const [students, setStudents] = useState<Student[]>([]);
+export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
+  const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-  const [parentMap, setParentMap] = useState<Record<string, ParentInfo>>({});
 
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [editingPersonnel, setEditingPersonnel] = useState<Personnel | null>(null);
   const [editForm, setEditForm] = useState<EditFormData>({
-    name: '', grade: '', studentId: '',
+    name: '', studentId: '',
     height: '', weight: '', age: '', sex: '',
     allergies: [], hasNoAllergies: false, currentAllergy: '',
     medicalConditions: [], hasNoMedicalConditions: false, currentMedicalCondition: '',
@@ -101,58 +85,38 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
   const loadData = async () => {
     try {
       setLoading(true);
-      let studentsData: Student[] = [];
-      if (userRole === 'student') {
-        const q = query(collection(db, 'students'), where('email', '==', userEmail));
+      let personnelData: Personnel[] = [];
+      
+      if (userRole === 'personnel') {
+        const q = query(collection(db, 'students'), where('email', '==', userEmail), where('grade', '==', 'Personnel'));
         const snapshot = await getDocs(q);
-        studentsData = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Student[];
-      } else if (userRole === 'parent') {
-        const validStudentIds = studentIds.filter(id => id && typeof id === 'string');
-        for (const sid of validStudentIds) {
-          const studentDoc = await getDoc(doc(db, 'students', sid));
-          if (studentDoc.exists()) {
-            studentsData.push({ id: studentDoc.id, ...studentDoc.data() } as Student);
-          }
-        }
+        personnelData = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Personnel[];
       } else {
-        const studentsSnapshot = await getDocs(collection(db, 'students'));
-        studentsData = studentsSnapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Student[];
+        const q = query(collection(db, 'students'), where('grade', '==', 'Personnel'));
+        const snapshot = await getDocs(q);
+        personnelData = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Personnel[];
       }
 
-      const usersSnapshot = await getDocs(collection(db, 'users'));
-      const parents = usersSnapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter((u: any) => u.role === 'parent');
-
-      const parentsMap: Record<string, ParentInfo> = {};
-      parents.forEach((parent: any) => {
-        if (parent.studentIds && Array.isArray(parent.studentIds)) {
-          parent.studentIds.forEach((sid: string) => {
-            parentsMap[sid] = { name: parent.name || 'Unknown', email: parent.email || 'Not provided', phone: parent.phone || 'Not provided' };
-          });
-        }
-      });
-
-      setStudents(studentsData.filter(s => s.grade !== 'Personnel'));
-      setParentMap(parentsMap);
+      setPersonnel(personnelData);
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('Error loading personnel data:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const openEdit = (student: Student) => {
-    setEditingStudent(student);
-    const allergies = student.allergies || [];
-    const medicalConditions = student.medicalConditions || [];
-    const immunizations = student.immunizations || [];
+  const openEdit = (p: Personnel) => {
+    setEditingPersonnel(p);
+    const allergies = p.allergies || [];
+    const medicalConditions = p.medicalConditions || [];
+    const immunizations = p.immunizations || [];
     setEditForm({
-      name: student.name,
-      grade: student.grade,
-      studentId: student.studentId,
-      height: student.height ? String(student.height) : '',
-      weight: student.weight ? String(student.weight) : '',
-      age: student.age ? String(student.age) : '',
-      sex: student.sex || '',
+      name: p.name,
+      studentId: p.studentId,
+      height: p.height ? String(p.height) : '',
+      weight: p.weight ? String(p.weight) : '',
+      age: p.age ? String(p.age) : '',
+      sex: p.sex || '',
       allergies,
       hasNoAllergies: allergies.length === 0,
       currentAllergy: '',
@@ -166,17 +130,17 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
   };
 
   const handleSave = async () => {
-    if (!editingStudent) return;
-    if (!editForm.name.trim() || !editForm.grade || !editForm.studentId.trim()) {
-      toast.error('Name, grade, and student ID are required');
+    if (!editingPersonnel) return;
+    if (!editForm.name.trim() || !editForm.studentId.trim()) {
+      toast.error('Name and Employee ID are required');
       return;
     }
     setSaving(true);
     try {
       const bmi = computeBMI(editForm.height, editForm.weight);
-      await updateDoc(doc(db, 'students', editingStudent.id), {
+      await updateDoc(doc(db, 'students', editingPersonnel.id), {
         name: editForm.name.trim(),
-        grade: editForm.grade,
+        grade: 'Personnel',
         studentId: editForm.studentId.trim(),
         height: editForm.height ? parseFloat(editForm.height) : null,
         weight: editForm.weight ? parseFloat(editForm.weight) : null,
@@ -188,56 +152,49 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
         immunizations: editForm.immunizations
       });
 
-      const usersSnapshot = await getDocs(query(collection(db, 'users'), where('email', '==', editingStudent.email)));
+      const usersSnapshot = await getDocs(query(collection(db, 'users'), where('email', '==', editingPersonnel.email)));
       usersSnapshot.docs.forEach(async (userDoc) => {
         await updateDoc(doc(db, 'users', userDoc.id), {
           name: editForm.name.trim(),
-          grade: editForm.grade,
+          grade: 'Personnel',
           studentId: editForm.studentId.trim()
         });
       });
 
-      toast.success('Student record updated successfully');
+      toast.success('Personnel record updated successfully');
       setIsEditOpen(false);
-      setEditingStudent(null);
+      setEditingPersonnel(null);
       loadData();
     } catch (error) {
-      console.error('Error saving student:', error);
-      toast.error('Failed to update student record');
+      console.error('Error saving personnel:', error);
+      toast.error('Failed to update personnel record');
     } finally {
       setSaving(false);
     }
   };
 
-  const filteredStudents = students.filter(s =>
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.grade.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.email.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredPersonnel = personnel.filter(p =>
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    p.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    p.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
     <div className="space-y-6 animate-fadeIn">
       <div>
-        <h1 className="text-slate-900">
-          {userRole === 'student' ? 'My Student Card' : userRole === 'parent' ? "My Children's Health Cards" : 'Student Cards'}
-        </h1>
+        <h1 className="text-slate-900">Personnel Cards</h1>
         <p className="mt-2 text-slate-600">
-          {userRole === 'student' 
-            ? 'View your complete student information and medical details' 
-            : userRole === 'parent' 
-              ? 'View complete student information and medical details for your children'
-              : 'View complete student information and medical details'}
+          View and manage medical information and health records for school personnel
         </p>
       </div>
 
-      {userRole !== 'student' && userRole !== 'parent' && (
+      {userRole !== 'personnel' && (
         <Card className="border-slate-200 bg-white shadow-sm">
           <CardContent className="pt-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
               <Input
-                placeholder="Search by name, student ID, grade, or email..."
+                placeholder="Search by name, employee ID, or email..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10 h-12 border-2 focus:border-ndkc-green"
@@ -249,45 +206,45 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1,2,3,4,5,6].map(i => (
+          {[1,2,3].map(i => (
             <Card key={i} className="border-slate-200 bg-white shadow-sm animate-pulse">
               <CardContent className="p-6"><div className="h-40 bg-slate-100 rounded"></div></CardContent>
             </Card>
           ))}
         </div>
-      ) : filteredStudents.length === 0 ? (
+      ) : filteredPersonnel.length === 0 ? (
         <Card className="border-slate-200 bg-white shadow-sm">
           <CardContent className="p-12 text-center">
             <User className="h-16 w-16 mx-auto text-slate-300 mb-4" />
-            <p className="text-slate-600">{searchTerm ? 'No students found matching your search' : 'No students registered yet'}</p>
+            <p className="text-slate-600">{searchTerm ? 'No personnel found matching your search' : 'No personnel registered yet'}</p>
           </CardContent>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredStudents.map((student) => {
-            const bmiValue = student.bmi ?? computeBMI(String(student.height || ''), String(student.weight || ''));
+          {filteredPersonnel.map((p) => {
+            const bmiValue = p.bmi ?? computeBMI(String(p.height || ''), String(p.weight || ''));
             const bmiCat = bmiValue ? getBMICategory(bmiValue) : null;
 
             return (
-              <Card key={student.id} className="border-slate-200 bg-white shadow-sm hover-lift transition-all duration-200">
-                <CardHeader className="border-b border-slate-100 bg-gradient-to-br from-ndkc-green/5 to-emerald-50/30 pb-4">
+              <Card key={p.id} className="border-slate-200 bg-white shadow-sm hover-lift transition-all duration-200">
+                <CardHeader className="border-b border-slate-100 bg-gradient-to-br from-rose-50/20 to-emerald-50/10 pb-4">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-ndkc-green to-emerald-600 shadow-lg shadow-emerald-500/30">
-                        <User className="h-6 w-6 text-white" />
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-rose-500 to-rose-600 shadow-lg shadow-rose-500/20">
+                        <Briefcase className="h-6 w-6 text-white" />
                       </div>
                       <div>
-                        <CardTitle className="text-lg text-slate-900">{student.name}</CardTitle>
-                        <p className="text-sm text-slate-500 mt-0.5">ID: {student.studentId}</p>
+                        <CardTitle className="text-lg text-slate-900">{p.name}</CardTitle>
+                        <p className="text-sm text-slate-500 mt-0.5">EMP ID: {p.studentId}</p>
                       </div>
                     </div>
                     {(userRole === 'admin' || userRole === 'nurse') && (
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => openEdit(student)}
-                        className="h-8 w-8 p-0 text-slate-400 hover:text-ndkc-green hover:bg-emerald-50 rounded-lg"
-                        title="Edit student"
+                        onClick={() => openEdit(p)}
+                        className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                        title="Edit personnel"
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -298,7 +255,7 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                 <CardContent className="pt-5 space-y-4">
 
                   {/* BMI — top of card content */}
-                  {(bmiValue || student.height || student.weight) && (
+                  {(bmiValue || p.height || p.weight) && (
                     <div className={`rounded-xl border p-3 ${bmiCat ? bmiCat.bg : 'bg-slate-50 border-slate-200'}`}>
                       <div className="flex items-center gap-2 mb-2">
                         <Activity className={`h-4 w-4 ${bmiCat ? bmiCat.color : 'text-slate-500'}`} />
@@ -312,25 +269,14 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                           </div>
                         )}
                         <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-600 mt-1">
-                          {student.height && <span>Height: <strong>{student.height} cm</strong></span>}
-                          {student.weight && <span>Weight: <strong>{student.weight} kg</strong></span>}
-                          {student.age   && <span>Age: <strong>{student.age} yrs</strong></span>}
-                          {student.sex   && <span>Sex: <strong>{student.sex}</strong></span>}
+                          {p.height && <span>Height: <strong>{p.height} cm</strong></span>}
+                          {p.weight && <span>Weight: <strong>{p.weight} kg</strong></span>}
+                          {p.age   && <span>Age: <strong>{p.age} yrs</strong></span>}
+                          {p.sex   && <span>Sex: <strong>{p.sex}</strong></span>}
                         </div>
                       </div>
                     </div>
                   )}
-
-                  {/* Grade */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-50">
-                      <GraduationCap className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-xs text-slate-500">Grade / Year Level</p>
-                      <p className="text-sm font-medium text-slate-900">{student.grade}</p>
-                    </div>
-                  </div>
 
                   {/* Email */}
                   <div className="flex items-center gap-3">
@@ -338,30 +284,9 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                       <Mail className="h-5 w-5 text-purple-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-500">Student Email</p>
-                      <p className="text-sm font-medium text-slate-900 truncate">{student.email}</p>
+                      <p className="text-xs text-slate-500">Employee Email</p>
+                      <p className="text-sm font-medium text-slate-900 truncate">{p.email}</p>
                     </div>
-                  </div>
-
-                  {/* Parent/Guardian */}
-                  <div className="pt-3 border-t border-slate-100">
-                    <div className="flex items-start gap-3 mb-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50">
-                        <Users className="h-5 w-5 text-indigo-600" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-xs font-semibold text-slate-700">Parent / Guardian</p>
-                      </div>
-                    </div>
-                    {parentMap[student.id] ? (
-                      <div className="ml-12 space-y-2">
-                        <div><p className="text-xs text-slate-500">Name</p><p className="text-sm font-medium text-slate-900">{parentMap[student.id].name}</p></div>
-                        <div><p className="text-xs text-slate-500">Email</p><p className="text-sm font-medium text-slate-900 truncate">{parentMap[student.id].email}</p></div>
-                        <div><p className="text-xs text-slate-500">Contact Number</p><p className="text-sm font-medium text-slate-900">{parentMap[student.id].phone}</p></div>
-                      </div>
-                    ) : (
-                      <div className="ml-12"><p className="text-sm text-slate-400 italic">No parent linked</p></div>
-                    )}
                   </div>
 
                   {/* Allergies */}
@@ -370,9 +295,9 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                       <AlertCircle className="h-4 w-4 text-red-500 mt-0.5" />
                       <p className="text-xs font-semibold text-slate-700">Allergies</p>
                     </div>
-                    {student.allergies && student.allergies.length > 0 ? (
+                    {p.allergies && p.allergies.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
-                        {student.allergies.map((a, i) => (
+                        {p.allergies.map((a, i) => (
                           <Badge key={i} variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs">{a}</Badge>
                         ))}
                       </div>
@@ -385,9 +310,9 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                       <Heart className="h-4 w-4 text-rose-500 mt-0.5" />
                       <p className="text-xs font-semibold text-slate-700">Medical Conditions</p>
                     </div>
-                    {student.medicalConditions && student.medicalConditions.length > 0 ? (
+                    {p.medicalConditions && p.medicalConditions.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
-                        {student.medicalConditions.map((c, i) => (
+                        {p.medicalConditions.map((c, i) => (
                           <Badge key={i} variant="outline" className="bg-rose-50 text-rose-700 border-rose-200 text-xs">{c}</Badge>
                         ))}
                       </div>
@@ -400,9 +325,9 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                       <Syringe className="h-4 w-4 text-teal-600 mt-0.5" />
                       <p className="text-xs font-semibold text-slate-700">Immunization Records</p>
                     </div>
-                    {student.immunizations && student.immunizations.length > 0 ? (
+                    {p.immunizations && p.immunizations.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
-                        {student.immunizations.map((v, i) => (
+                        {p.immunizations.map((v, i) => (
                           <Badge key={i} variant="outline" className="bg-teal-50 text-teal-700 border-teal-200 text-xs">{v}</Badge>
                         ))}
                       </div>
@@ -416,14 +341,14 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
         </div>
       )}
 
-      {/* Edit Student Dialog */}
-      <Dialog open={isEditOpen} onOpenChange={(open) => { if (!open) { setIsEditOpen(false); setEditingStudent(null); } }}>
+      {/* Edit Personnel Dialog */}
+      <Dialog open={isEditOpen} onOpenChange={(open) => { if (!open) { setIsEditOpen(false); setEditingPersonnel(null); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Student Record</DialogTitle>
+            <DialogTitle>Edit Personnel Record</DialogTitle>
           </DialogHeader>
 
-          {editingStudent && (
+          {editingPersonnel && (
             <div className="space-y-6 py-4">
 
               {/* Basic Info */}
@@ -434,26 +359,15 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                 </div>
                 <div className="space-y-2">
                   <Label>Email Address</Label>
-                  <Input value={editingStudent.email} disabled className="bg-slate-50" />
+                  <Input value={editingPersonnel.email} disabled className="bg-slate-50" />
                   <p className="text-xs text-slate-500">Email cannot be changed</p>
                 </div>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Student ID</Label>
-                  <Input value={editForm.studentId} onChange={(e) => setEditForm({ ...editForm, studentId: e.target.value })} placeholder="e.g., 2024001" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Grade Level</Label>
-                  <select
-                    value={editForm.grade}
-                    onChange={(e) => setEditForm({ ...editForm, grade: e.target.value })}
-                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm"
-                  >
-                    <option value="">Select grade</option>
-                    {GRADE_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
-                  </select>
+                  <Label>Employee ID</Label>
+                  <Input value={editForm.studentId} onChange={(e) => setEditForm({ ...editForm, studentId: e.target.value })} placeholder="e.g., EMP-202401" />
                 </div>
               </div>
 
@@ -471,7 +385,7 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs text-slate-600">Age</label>
-                    <Input type="number" value={editForm.age} onChange={(e) => setEditForm({ ...editForm, age: e.target.value })} placeholder="e.g., 17" min="1" />
+                    <Input type="number" value={editForm.age} onChange={(e) => setEditForm({ ...editForm, age: e.target.value })} placeholder="e.g., 35" min="1" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs text-slate-600">Sex</label>
@@ -503,8 +417,8 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
               <div className="space-y-3">
                 <Label>Allergies</Label>
                 <div className="flex items-center space-x-2 mb-3">
-                  <Checkbox id="sc-noAllergies" checked={editForm.hasNoAllergies} onCheckedChange={(c) => setEditForm({ ...editForm, hasNoAllergies: c as boolean, allergies: c ? [] : editForm.allergies })} />
-                  <label htmlFor="sc-noAllergies" className="text-sm cursor-pointer text-slate-700">No known allergies</label>
+                  <Checkbox id="pc-noAllergies" checked={editForm.hasNoAllergies} onCheckedChange={(c) => setEditForm({ ...editForm, hasNoAllergies: c as boolean, allergies: c ? [] : editForm.allergies })} />
+                  <label htmlFor="pc-noAllergies" className="text-sm cursor-pointer text-slate-700">No known allergies</label>
                 </div>
                 {!editForm.hasNoAllergies && (
                   <div className="space-y-3">
@@ -529,8 +443,8 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
               <div className="space-y-3">
                 <Label>Medical Conditions</Label>
                 <div className="flex items-center space-x-2 mb-3">
-                  <Checkbox id="sc-noMedical" checked={editForm.hasNoMedicalConditions} onCheckedChange={(c) => setEditForm({ ...editForm, hasNoMedicalConditions: c as boolean, medicalConditions: c ? [] : editForm.medicalConditions })} />
-                  <label htmlFor="sc-noMedical" className="text-sm cursor-pointer text-slate-700">No known medical conditions</label>
+                  <Checkbox id="pc-noMedical" checked={editForm.hasNoMedicalConditions} onCheckedChange={(c) => setEditForm({ ...editForm, hasNoMedicalConditions: c as boolean, medicalConditions: c ? [] : editForm.medicalConditions })} />
+                  <label htmlFor="pc-noMedical" className="text-sm cursor-pointer text-slate-700">No known medical conditions</label>
                 </div>
                 {!editForm.hasNoMedicalConditions && (
                   <div className="space-y-3">
@@ -571,10 +485,10 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
 
               {/* Action Buttons */}
               <div className="flex gap-3 pt-4">
-                <Button onClick={handleSave} disabled={saving} className="flex-1 bg-gradient-to-r from-ndkc-green to-emerald-600">
+                <Button onClick={handleSave} disabled={saving} className="flex-1 bg-gradient-to-r from-rose-500 to-rose-600 text-white">
                   {saving ? 'Saving...' : 'Save Changes'}
                 </Button>
-                <Button onClick={() => { setIsEditOpen(false); setEditingStudent(null); }} variant="outline">Cancel</Button>
+                <Button onClick={() => { setIsEditOpen(false); setEditingPersonnel(null); }} variant="outline">Cancel</Button>
               </div>
 
             </div>

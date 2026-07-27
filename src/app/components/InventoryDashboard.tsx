@@ -5,6 +5,7 @@ import {
   addInventoryItem,
   updateInventoryItem,
   getInventoryStats,
+  returnEquipment,
   InventoryItem,
 } from '../lib/firestore-setup';
 import { Button } from './ui/button';
@@ -24,6 +25,8 @@ import {
   Loader2,
   X,
   Filter,
+  Layers,
+  HeartPulse,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -44,21 +47,25 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
   const [filteredItems, setFilteredItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'medicine' | 'equipment'>('all');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'medicine' | 'equipment' | 'consumables' | 'medical supplies'>('all');
+  const [branchFilter, setBranchFilter] = useState<'all' | 'IBED' | 'SHS' | 'College'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [stats, setStats] = useState({
     totalMedicines: 0,
     totalEquipment: 0,
+    totalConsumables: 0,
+    totalMedicalSupplies: 0,
     lowStockCount: 0,
     expiringSoonCount: 0,
   });
 
   const [formData, setFormData] = useState({
     name: '',
-    category: 'medicine' as 'medicine' | 'equipment',
+    category: 'medicine' as 'medicine' | 'equipment' | 'consumables' | 'medical supplies',
     stockQuantity: 0,
     expirationDate: '',
+    branch: '' as 'IBED' | 'SHS' | 'College' | '',
   });
 
   useEffect(() => {
@@ -68,7 +75,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
 
   useEffect(() => {
     filterItems();
-  }, [items, searchQuery, categoryFilter]);
+  }, [items, searchQuery, categoryFilter, branchFilter]);
 
   const loadInventory = async () => {
     try {
@@ -100,6 +107,11 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
   const filterItems = () => {
     let filtered = items;
 
+    // Filter by branch
+    if (branchFilter !== 'all') {
+      filtered = filtered.filter(item => item.branch === branchFilter);
+    }
+
     // Filter by category
     if (categoryFilter !== 'all') {
       filtered = filtered.filter(item => item.category === categoryFilter);
@@ -120,6 +132,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
       const itemData: Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'> = {
         name: formData.name,
         category: formData.category,
+        branch: formData.branch as 'IBED' | 'SHS' | 'College',
         stockQuantity: formData.stockQuantity,
         unit: formData.category === 'medicine' ? 'tablets' : 'pcs', // Default units
         minStockLevel: 10, // Default value for backward compatibility
@@ -149,6 +162,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
       const updates: Partial<InventoryItem> = {
         name: formData.name,
         category: formData.category,
+        branch: formData.branch as 'IBED' | 'SHS' | 'College',
         stockQuantity: formData.stockQuantity,
       };
 
@@ -202,6 +216,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
       category: item.category,
       stockQuantity: item.stockQuantity,
       expirationDate: expirationDateString,
+      branch: item.branch || '',
     });
   };
 
@@ -211,7 +226,23 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
       category: 'medicine',
       stockQuantity: 0,
       expirationDate: '',
+      branch: '',
     });
+  };
+
+  const handleReturnItem = async (itemId: string, studentId: string, visitId: string) => {
+    try {
+      setLoading(true);
+      await returnEquipment(itemId, studentId, visitId);
+      toast.success('Equipment marked as returned successfully!');
+      await loadInventory();
+      await loadStats();
+    } catch (error: any) {
+      console.error('Error returning equipment:', error);
+      toast.error(error.message || 'Failed to return equipment');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getStockStatus = (quantity: number) => {
@@ -274,8 +305,8 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
         <Card className="p-6 border-2 border-blue-100 bg-gradient-to-br from-blue-50 to-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600 mb-1">Total Medicines</p>
-              <p className="text-3xl font-bold text-blue-600">{stats.totalMedicines}</p>
+              <p className="text-sm text-slate-600 mb-1">Medicines & Supplies</p>
+              <p className="text-3xl font-bold text-blue-600">{stats.totalMedicines + stats.totalConsumables + stats.totalMedicalSupplies}</p>
             </div>
             <div className="p-4 bg-blue-100 rounded-2xl">
               <Pill className="h-8 w-8 text-blue-600" />
@@ -320,6 +351,23 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
         </Card>
       </div>
 
+      {/* Branch Partition Tab Buttons */}
+      <div className="bg-slate-100 p-1.5 rounded-2xl flex w-full md:w-fit gap-1 shadow-inner border border-slate-200">
+        {(['all', 'IBED', 'SHS', 'College'] as const).map((branch) => (
+          <button
+            key={branch}
+            onClick={() => setBranchFilter(branch)}
+            className={`flex-1 md:flex-initial px-6 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 cursor-pointer ${
+              branchFilter === branch
+                ? 'bg-white text-slate-900 shadow-md font-semibold'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+            }`}
+          >
+            {branch === 'all' ? 'ALL' : branch === 'SHS' ? 'SHS' : branch === 'College' ? 'College' : 'IBED'}
+          </button>
+        ))}
+      </div>
+
       {/* Filters */}
       <div className="flex flex-col md:flex-row gap-4">
         {/* Search */}
@@ -334,18 +382,18 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
         </div>
 
         {/* Category Filter */}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant={categoryFilter === 'all' ? 'default' : 'outline'}
             onClick={() => setCategoryFilter('all')}
-            className={categoryFilter === 'all' ? 'bg-ndkc-green' : ''}
+            className={categoryFilter === 'all' ? 'bg-ndkc-green hover:bg-ndkc-green/90' : ''}
           >
             All Items
           </Button>
           <Button
             variant={categoryFilter === 'medicine' ? 'default' : 'outline'}
             onClick={() => setCategoryFilter('medicine')}
-            className={categoryFilter === 'medicine' ? 'bg-blue-600' : ''}
+            className={categoryFilter === 'medicine' ? 'bg-blue-600 hover:bg-blue-700' : ''}
           >
             <Pill className="mr-2 h-4 w-4" />
             Medicines
@@ -353,10 +401,26 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
           <Button
             variant={categoryFilter === 'equipment' ? 'default' : 'outline'}
             onClick={() => setCategoryFilter('equipment')}
-            className={categoryFilter === 'equipment' ? 'bg-purple-600' : ''}
+            className={categoryFilter === 'equipment' ? 'bg-purple-600 hover:bg-purple-700' : ''}
           >
             <Package className="mr-2 h-4 w-4" />
             Equipment
+          </Button>
+          <Button
+            variant={categoryFilter === 'consumables' ? 'default' : 'outline'}
+            onClick={() => setCategoryFilter('consumables')}
+            className={categoryFilter === 'consumables' ? 'bg-amber-600 hover:bg-amber-700' : ''}
+          >
+            <Layers className="mr-2 h-4 w-4" />
+            Consumables
+          </Button>
+          <Button
+            variant={categoryFilter === 'medical supplies' ? 'default' : 'outline'}
+            onClick={() => setCategoryFilter('medical supplies')}
+            className={categoryFilter === 'medical supplies' ? 'bg-rose-600 hover:bg-rose-700' : ''}
+          >
+            <HeartPulse className="mr-2 h-4 w-4" />
+            Medical Supplies
           </Button>
         </div>
       </div>
@@ -393,23 +457,63 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                 filteredItems.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-start gap-3">
                         <div
-                          className={`p-2 rounded-lg ${
-                            item.category === 'medicine' ? 'bg-blue-100' : 'bg-purple-100'
+                          className={`p-2 rounded-lg mt-0.5 ${
+                            item.category === 'medicine' ? 'bg-blue-100' :
+                            item.category === 'equipment' ? 'bg-purple-100' :
+                            item.category === 'consumables' ? 'bg-amber-100' :
+                            'bg-rose-100'
                           }`}
                         >
                           {item.category === 'medicine' ? (
                             <Pill className="h-4 w-4 text-blue-600" />
-                          ) : (
+                          ) : item.category === 'equipment' ? (
                             <Package className="h-4 w-4 text-purple-600" />
+                          ) : item.category === 'consumables' ? (
+                            <Layers className="h-4 w-4 text-amber-600" />
+                          ) : (
+                            <HeartPulse className="h-4 w-4 text-rose-600" />
                           )}
                         </div>
-                        <span className="font-medium text-slate-900">{item.name}</span>
+                        <div className="flex flex-col">
+                          <span className="font-medium text-slate-900">{item.name}</span>
+                          <span className="text-[11px] text-slate-500 mt-0.5">
+                            Branch: <span className="font-medium text-slate-700">{item.branch || 'N/A'}</span>
+                          </span>
+                          
+                          {/* Borrowed by list (Equipment only) */}
+                          {item.category === 'equipment' && item.borrowedBy && item.borrowedBy.length > 0 && (
+                            <div className="mt-2 text-xs space-y-1">
+                              <span className="text-amber-600 font-semibold flex items-center gap-1">
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                                Currently Borrowed by:
+                              </span>
+                              <div className="flex flex-wrap gap-1.5 mt-1">
+                                {item.borrowedBy.map((borrow: any, idx: number) => (
+                                  <Badge
+                                    key={idx}
+                                    variant="outline"
+                                    className="bg-amber-50 text-amber-800 border-amber-200 flex items-center gap-1.5 py-0.5 px-2 rounded-lg"
+                                  >
+                                    <span>{borrow.studentName} ({borrow.grade})</span>
+                                    <button
+                                      onClick={() => handleReturnItem(item.id!, borrow.studentId, borrow.visitId)}
+                                      className="text-amber-600 hover:text-amber-900 font-bold ml-1 hover:bg-amber-100 rounded-full px-1.5 py-0.25 cursor-pointer text-[10px]"
+                                      title="Mark as Returned"
+                                    >
+                                      ✓ Return
+                                    </button>
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <Badge variant="outline" className="capitalize">
+                      <Badge variant="outline" className="capitalize border-slate-200 bg-slate-50">
                         {item.category}
                       </Badge>
                     </td>
@@ -439,7 +543,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      {item.expirationDate ? (
+                      {item.category === 'medicine' && item.expirationDate ? (
                         <div className="flex items-center gap-2">
                           <span
                             className={
@@ -455,7 +559,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                           )}
                         </div>
                       ) : (
-                        <span className="text-slate-400">N/A</span>
+                        <span className="text-slate-400">-</span>
                       )}
                     </td>
                     <td className="px-6 py-4">
@@ -464,7 +568,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleEditClick(item)}
-                          className="hover:bg-blue-50 hover:text-blue-600"
+                          className="hover:bg-blue-50 hover:text-blue-600 rounded-lg"
                         >
                           <Edit2 className="h-4 w-4" />
                         </Button>
@@ -472,7 +576,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleDeleteItem(item.id!, item.name)}
-                          className="hover:bg-red-50 hover:text-red-600"
+                          className="hover:bg-red-50 hover:text-red-600 rounded-lg"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -518,6 +622,25 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
               {/* Form */}
               <div className="p-6 space-y-6">
                 <div className="space-y-2">
+                  <Label htmlFor="branch">Branch *</Label>
+                  <Select
+                    value={formData.branch}
+                    onValueChange={(value: 'IBED' | 'SHS' | 'College') =>
+                      setFormData({ ...formData, branch: value })
+                    }
+                  >
+                    <SelectTrigger className="h-12">
+                      <SelectValue placeholder="Select branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="IBED">IBED (Kindergarten - Grade 10)</SelectItem>
+                      <SelectItem value="SHS">Senior High School (Grade 11 - 12)</SelectItem>
+                      <SelectItem value="College">College Department</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="name">Item Name *</Label>
                   <Input
                     id="name"
@@ -532,7 +655,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                   <Label htmlFor="category">Category *</Label>
                   <Select
                     value={formData.category}
-                    onValueChange={(value: 'medicine' | 'equipment') =>
+                    onValueChange={(value: 'medicine' | 'equipment' | 'consumables' | 'medical supplies') =>
                       setFormData({ ...formData, category: value })
                     }
                   >
@@ -542,6 +665,8 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                     <SelectContent>
                       <SelectItem value="medicine">Medicine</SelectItem>
                       <SelectItem value="equipment">Equipment</SelectItem>
+                      <SelectItem value="consumables">Consumables</SelectItem>
+                      <SelectItem value="medical supplies">Medical Supplies</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -590,7 +715,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                   </Button>
                   <Button
                     onClick={editingItem ? handleUpdateItem : handleAddItem}
-                    disabled={!formData.name || formData.stockQuantity < 0}
+                    disabled={!formData.name || !formData.branch || formData.stockQuantity < 0}
                     className="flex-1 h-12 bg-gradient-to-r from-ndkc-green to-emerald-600"
                   >
                     {editingItem ? 'Update Item' : 'Add Item'}

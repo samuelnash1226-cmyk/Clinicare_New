@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, Settings, Activity, LogOut, User, ChevronRight, Users, GraduationCap, ChevronsLeft, ChevronsRight, Calendar, Package, IdCard } from 'lucide-react';
+import { LayoutDashboard, FileText, Settings, Activity, LogOut, User, ChevronRight, Users, GraduationCap, ChevronsLeft, ChevronsRight, Calendar, Package, IdCard, Syringe } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -26,7 +26,7 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
         try {
           const userRef = doc(db, 'users', user.uid);
           const userDoc = await getDoc(userRef);
-          
+
           if (userDoc.exists()) {
             const userData = userDoc.data();
             setUserName(userData.name || user.email?.split('@')[0] || 'User');
@@ -42,36 +42,37 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
 
     fetchUserName();
   }, [user]);
-  
+
   const menuItems = userRole === 'admin'
     ? [
-        { id: 'dashboard', label: 'Analytics', icon: LayoutDashboard, description: 'Overview & Reports' },
-        { id: 'users', label: 'User Management', icon: Users, description: 'Manage Accounts' },
-        { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
-        { id: 'nurse', label: 'Clinic Visits', icon: Activity, description: 'Patient Records' },
-        { id: 'inventory', label: 'Inventory', icon: Package, description: 'Medicines & Equipment' },
-        { id: 'history', label: 'Visit History', icon: Calendar, description: 'All Past Visits' },
-        { id: 'settings', label: 'Settings', icon: Settings, description: 'System Config' },
-      ]
+      { id: 'dashboard', label: 'Analytics', icon: LayoutDashboard, description: 'Overview & Reports' },
+      { id: 'users', label: 'User Management', icon: Users, description: 'Manage Accounts' },
+      { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
+      { id: 'personnelcards', label: 'Personnel Cards', icon: IdCard, description: 'Personnel Information' },
+      { id: 'nurse', label: 'Clinic Visits', icon: Activity, description: 'Patient Records' },
+      { id: 'inventory', label: 'Inventory', icon: Package, description: 'Medicines & Equipment' },
+      { id: 'history', label: 'Visit History', icon: Calendar, description: 'All Past Visits' },
+      { id: 'settings', label: 'Settings', icon: Settings, description: 'System Config' },
+    ]
     : userRole === 'parent'
-    ? [
+      ? [
         { id: 'parent', label: 'Health Records', icon: FileText, description: 'Student Health' },
         { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
         { id: 'settings', label: 'Settings', icon: Settings, description: 'Account Settings' },
       ]
-    : userRole === 'student'
-    ? [
-        { id: 'student', label: 'My Health', icon: GraduationCap, description: 'Health Records' },
-        { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
-        { id: 'settings', label: 'Settings', icon: Settings, description: 'Account Settings' },
-      ]
-    : [
-        { id: 'nurse', label: 'Dashboard', icon: LayoutDashboard, description: 'Clinic Management' },
-        { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
-        { id: 'inventory', label: 'Inventory', icon: Package, description: 'Medicines & Equipment' },
-        { id: 'history', label: 'Visit History', icon: Calendar, description: 'All Past Visits' },
-        { id: 'settings', label: 'Settings', icon: Settings, description: 'Preferences' },
-      ];
+      : (userRole === 'student' || userRole === 'personnel')
+        ? [
+          { id: 'student', label: userRole === 'personnel' ? 'Personnel Health' : 'My Health', icon: userRole === 'personnel' ? Syringe : GraduationCap, description: 'Health Records' },
+          { id: 'settings', label: 'Settings', icon: Settings, description: 'Account Settings' },
+        ]
+        : [
+          { id: 'nurse', label: 'Dashboard', icon: LayoutDashboard, description: 'Clinic Management' },
+          { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
+          { id: 'personnelcards', label: 'Personnel Cards', icon: IdCard, description: 'Personnel Information' },
+          { id: 'inventory', label: 'Inventory', icon: Package, description: 'Medicines & Equipment' },
+          { id: 'history', label: 'Visit History', icon: Calendar, description: 'All Past Visits' },
+          { id: 'settings', label: 'Settings', icon: Settings, description: 'Preferences' },
+        ];
 
   const handleLogout = async () => {
     try {
@@ -93,6 +94,8 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
         return 'from-amber-500 to-amber-600 shadow-amber-500/30';
       case 'student':
         return 'from-emerald-500 to-emerald-600 shadow-emerald-500/30';
+      case 'personnel':
+        return 'from-rose-500 to-rose-600 shadow-rose-500/30';
       default:
         return 'from-slate-500 to-slate-600 shadow-slate-500/30';
     }
@@ -108,13 +111,15 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
         return 'Parent';
       case 'student':
         return 'Student';
+      case 'personnel':
+        return 'Personnel';
       default:
         return 'User';
     }
   };
 
   return (
-    <motion.div 
+    <motion.div
       className="relative flex h-screen flex-col border-r border-slate-200/80 bg-white/90 backdrop-blur-2xl"
       animate={{ width: isMinimized ? '80px' : '320px' }}
       transition={{ duration: 0.3, ease: 'easeInOut' }}
@@ -167,7 +172,7 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
             </div>
             <div className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-white bg-emerald-500 shadow-sm" />
           </div>
-          
+
           {/* User Info */}
           <AnimatePresence>
             {!isMinimized && (
@@ -179,7 +184,7 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
                 className="flex-1 min-w-0"
               >
                 <p className="truncate text-slate-900">{userName}</p>
-                
+
                 {/* Role Badge */}
                 <div className="mt-2">
                   <span className={`inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r ${getRoleBadgeColor()} px-2.5 py-1 text-xs text-white shadow-lg`}>
@@ -210,7 +215,7 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
         {menuItems.map((item, index) => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
-          
+
           return (
             <motion.button
               key={item.id}
@@ -218,11 +223,10 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.05 }}
-              className={`group relative flex w-full items-center gap-4 rounded-2xl px-4 py-3.5 transition-all duration-300 ${
-                isActive
-                  ? 'bg-gradient-to-r from-ndkc-green to-emerald-600 text-white shadow-lg shadow-emerald-500/40'
-                  : 'text-slate-700 hover:bg-slate-100/80 hover:text-ndkc-green'
-              } ${isMinimized ? 'justify-center' : ''}`}
+              className={`group relative flex w-full items-center gap-4 rounded-2xl px-4 py-3.5 transition-all duration-300 ${isActive
+                ? 'bg-gradient-to-r from-ndkc-green to-emerald-600 text-white shadow-lg shadow-emerald-500/40'
+                : 'text-slate-700 hover:bg-slate-100/80 hover:text-ndkc-green'
+                } ${isMinimized ? 'justify-center' : ''}`}
               title={isMinimized ? item.label : ''}
             >
               {/* Active Indicator */}
@@ -233,16 +237,15 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
                   transition={{ type: "spring", stiffness: 300, damping: 30 }}
                 />
               )}
-              
+
               {/* Icon Container */}
-              <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-300 ${
-                isActive 
-                  ? 'bg-white/20' 
-                  : 'bg-slate-100 group-hover:bg-ndkc-green/10 group-hover:scale-110'
-              }`}>
+              <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-300 ${isActive
+                ? 'bg-white/20'
+                : 'bg-slate-100 group-hover:bg-ndkc-green/10 group-hover:scale-110'
+                }`}>
                 <Icon className={`h-5 w-5 transition-transform ${isActive ? '' : 'group-hover:scale-110'}`} />
               </div>
-              
+
               {/* Text Content */}
               <AnimatePresence>
                 {!isMinimized && (
@@ -254,15 +257,14 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
                     className="flex-1 text-left"
                   >
                     <p className="font-medium">{item.label}</p>
-                    <p className={`text-xs transition-colors ${
-                      isActive ? 'text-white/80' : 'text-slate-500 group-hover:text-ndkc-green/70'
-                    }`}>
+                    <p className={`text-xs transition-colors ${isActive ? 'text-white/80' : 'text-slate-500 group-hover:text-ndkc-green/70'
+                      }`}>
                       {item.description}
                     </p>
                   </motion.div>
                 )}
               </AnimatePresence>
-              
+
               {/* Arrow Indicator */}
               <AnimatePresence>
                 {!isMinimized && (
@@ -306,7 +308,7 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
             )}
           </AnimatePresence>
         </button>
-        
+
         {/* Copyright */}
         <AnimatePresence>
           {!isMinimized && (
@@ -318,7 +320,7 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
               className="rounded-xl bg-slate-100/50 px-4 py-3 text-center"
             >
               <p className="text-xs text-slate-500">
-                © 2025 NDKC ClinicCare
+                © 2026 NDKC ClinicCare
               </p>
               <p className="mt-0.5 text-xs text-slate-400">
                 Version 1.0.0

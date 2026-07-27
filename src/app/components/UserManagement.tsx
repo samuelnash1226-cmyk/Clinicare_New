@@ -22,7 +22,7 @@ interface UserData {
   id: string;
   email: string;
   name: string;
-  role: 'admin' | 'nurse' | 'parent' | 'student';
+  role: 'admin' | 'nurse' | 'parent' | 'student' | 'personnel';
   studentIds?: string[];
   grade?: string;
   studentId?: string;
@@ -68,7 +68,7 @@ export function UserManagement() {
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isBulkAddOpen, setIsBulkAddOpen] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<'nurse' | 'parent' | 'student'>('student');
+  const [selectedRole, setSelectedRole] = useState<'nurse' | 'parent' | 'student' | 'personnel'>('student');
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
 
@@ -155,19 +155,23 @@ export function UserManagement() {
       };
 
       // Add role-specific data
-      if (selectedRole === 'student') {
-        if (!formData.grade || !formData.studentId) {
+      if (selectedRole === 'student' || selectedRole === 'personnel') {
+        if (selectedRole === 'student' && (!formData.grade || !formData.studentId)) {
           toast.error('Please fill in grade and student ID');
           return;
         }
-        userData.grade = formData.grade;
+        if (selectedRole === 'personnel' && !formData.studentId) {
+          toast.error('Please fill in Employee ID');
+          return;
+        }
+        userData.grade = selectedRole === 'personnel' ? 'Personnel' : formData.grade;
         userData.studentId = formData.studentId;
 
         // Also create student record
         await addDoc(collection(db, 'students'), {
           studentId: formData.studentId,
           name: formData.name,
-          grade: formData.grade,
+          grade: userData.grade,
           email: formData.email,
           parentEmail: '',
           createdAt: new Date(),
@@ -222,8 +226,8 @@ export function UserManagement() {
     try {
       console.log(`🗑️ Starting cascade deletion for user: ${userToDelete?.name} (${userId})`);
       
-      // 1. If student, delete student record
-      if (userToDelete?.role === 'student') {
+      // 1. If student or personnel, delete student record
+      if (userToDelete?.role === 'student' || userToDelete?.role === 'personnel') {
         const studentsSnapshot = await getDocs(
           query(collection(db, 'students'), where('email', '==', userToDelete.email))
         );
@@ -344,8 +348,8 @@ export function UserManagement() {
         name: updatedData.name,
       };
 
-      if (editingUser.role === 'student') {
-        updatePayload.grade = updatedData.grade;
+      if (editingUser.role === 'student' || editingUser.role === 'personnel') {
+        updatePayload.grade = editingUser.role === 'personnel' ? 'Personnel' : updatedData.grade;
         updatePayload.studentId = updatedData.studentId;
       } else if (editingUser.role === 'parent') {
         updatePayload.studentIds = updatedData.selectedStudents || [];
@@ -354,15 +358,15 @@ export function UserManagement() {
 
       await updateDoc(doc(db, 'users', editingUser.id), updatePayload);
 
-      // If student, also update student record
-      if (editingUser.role === 'student') {
+      // If student or personnel, also update student record
+      if (editingUser.role === 'student' || editingUser.role === 'personnel') {
         const studentsSnapshot = await getDocs(
           query(collection(db, 'students'), where('email', '==', editingUser.email))
         );
         studentsSnapshot.docs.forEach(async (studentDoc) => {
           await updateDoc(doc(db, 'students', studentDoc.id), {
             name: updatedData.name,
-            grade: updatedData.grade,
+            grade: editingUser.role === 'personnel' ? 'Personnel' : updatedData.grade,
             studentId: updatedData.studentId,
             allergies: updatedData.allergies || [],
             medicalConditions: updatedData.medicalConditions || [],
@@ -405,7 +409,7 @@ export function UserManagement() {
     let studentAge = '';
     let studentSex = '';
 
-    if (user.role === 'student') {
+    if (user.role === 'student' || user.role === 'personnel') {
       const studentsSnapshot = await getDocs(
         query(collection(db, 'students'), where('email', '==', user.email))
       );
@@ -481,6 +485,8 @@ export function UserManagement() {
         return 'bg-amber-100 text-amber-700 border-amber-200';
       case 'student':
         return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+      case 'personnel':
+        return 'bg-rose-100 text-rose-700 border-rose-200';
       default:
         return 'bg-slate-100 text-slate-700 border-slate-200';
     }
@@ -496,6 +502,8 @@ export function UserManagement() {
         return <Users className="h-4 w-4" />;
       case 'student':
         return <GraduationCap className="h-4 w-4" />;
+      case 'personnel':
+        return <Syringe className="h-4 w-4" />;
       default:
         return <User className="h-4 w-4" />;
     }
@@ -511,7 +519,8 @@ export function UserManagement() {
     student: filteredUsers.filter(u => u.role === 'student'),
     parent: filteredUsers.filter(u => u.role === 'parent'),
     nurse: filteredUsers.filter(u => u.role === 'nurse'),
-    admin: filteredUsers.filter(u => u.role === 'admin')
+    admin: filteredUsers.filter(u => u.role === 'admin'),
+    personnel: filteredUsers.filter(u => u.role === 'personnel')
   };
 
   return (
@@ -551,7 +560,7 @@ export function UserManagement() {
               {/* Role Selection */}
               <div className="space-y-2">
                 <Label>User Role</Label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => setSelectedRole('student')}
                     className={`rounded-xl border-2 p-4 transition-all ${
@@ -586,6 +595,18 @@ export function UserManagement() {
                   >
                     <Stethoscope className="mx-auto h-8 w-8 text-blue-600" />
                     <p className="mt-2 font-medium text-slate-900">Nurse/Staff</p>
+                  </button>
+
+                  <button
+                    onClick={() => setSelectedRole('personnel')}
+                    className={`rounded-xl border-2 p-4 transition-all ${
+                      selectedRole === 'personnel'
+                        ? 'border-rose-500 bg-rose-50'
+                        : 'border-slate-200 hover:border-rose-300'
+                    }`}
+                  >
+                    <Syringe className="mx-auto h-8 w-8 text-rose-600" />
+                    <p className="mt-2 font-medium text-slate-900">Personnel</p>
                   </button>
                 </div>
               </div>
@@ -626,37 +647,48 @@ export function UserManagement() {
               </div>
 
               {/* Student-specific fields */}
-              {selectedRole === 'student' && (
+              {(selectedRole === 'student' || selectedRole === 'personnel') && (
                 <>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="studentId">Student ID</Label>
+                      <Label htmlFor="studentId">
+                        {selectedRole === 'personnel' ? 'Employee ID' : 'Student ID'}
+                      </Label>
                       <Input
                         id="studentId"
                         value={formData.studentId}
                         onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
-                        placeholder="e.g., 2024001"
+                        placeholder={selectedRole === 'personnel' ? 'e.g., EMP-202401' : 'e.g., 2024001'}
                       />
                     </div>
                     
-                    <div className="space-y-2">
-                      <Label htmlFor="grade">Grade Level</Label>
-                      <Select value={formData.grade} onValueChange={(value) => setFormData({ ...formData, grade: value })}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select grade" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {[
-                            'Kindergarten', 
-                            'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-                            'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12',
-                            '1st Year College', '2nd Year College', '3rd Year College', '4th Year College'
-                          ].map(grade => (
-                            <SelectItem key={grade} value={grade}>{grade}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {selectedRole === 'student' ? (
+                      <div className="space-y-2">
+                        <Label htmlFor="grade">Grade Level</Label>
+                        <Select value={formData.grade} onValueChange={(value) => setFormData({ ...formData, grade: value })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select grade" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[
+                              'Kindergarten', 
+                              'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
+                              'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12',
+                              '1st Year College', '2nd Year College', '3rd Year College', '4th Year College'
+                            ].map(grade => (
+                              <SelectItem key={grade} value={grade}>{grade}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label>Role Designation</Label>
+                        <div className="flex h-10 w-full items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-600">
+                          Personnel
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* BMI Section */}
@@ -1118,38 +1150,49 @@ export function UserManagement() {
                   </div>
                 </div>
 
-                {/* Student-specific fields */}
-                {editingUser.role === 'student' && (
+                {/* Student/Personnel specific fields */}
+                {(editingUser.role === 'student' || editingUser.role === 'personnel') && (
                   <>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label htmlFor="edit-studentId">Student ID</Label>
+                        <Label htmlFor="edit-studentId">
+                          {editingUser.role === 'personnel' ? 'Employee ID' : 'Student ID'}
+                        </Label>
                         <Input
                           id="edit-studentId"
                           value={formData.studentId}
                           onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
-                          placeholder="e.g., 2024001"
+                          placeholder={editingUser.role === 'personnel' ? 'e.g., EMP-202401' : 'e.g., 2024001'}
                         />
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="edit-grade">Grade Level</Label>
-                        <Select value={formData.grade} onValueChange={(value) => setFormData({ ...formData, grade: value })}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select grade" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {[
-                              'Kindergarten',
-                              'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-                              'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12',
-                              '1st Year College', '2nd Year College', '3rd Year College', '4th Year College'
-                            ].map(grade => (
-                              <SelectItem key={grade} value={grade}>{grade}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      {editingUser.role === 'student' ? (
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-grade">Grade Level</Label>
+                          <Select value={formData.grade} onValueChange={(value) => setFormData({ ...formData, grade: value })}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select grade" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {[
+                                'Kindergarten',
+                                'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
+                                'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12',
+                                '1st Year College', '2nd Year College', '3rd Year College', '4th Year College'
+                              ].map(grade => (
+                                <SelectItem key={grade} value={grade}>{grade}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <Label>Role Designation</Label>
+                          <div className="flex h-10 w-full items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-600">
+                            Personnel
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* BMI Section */}
@@ -1594,7 +1637,7 @@ export function UserManagement() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-5">
         <Card className="border-slate-200 bg-white shadow-sm">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -1642,6 +1685,18 @@ export function UserManagement() {
             </div>
           </CardContent>
         </Card>
+
+        <Card className="border-rose-200 bg-rose-50/50 shadow-sm">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-rose-700">Personnel</p>
+                <p className="text-3xl font-bold text-rose-900">{usersByRole.personnel.length}</p>
+              </div>
+              <Syringe className="h-8 w-8 text-rose-500" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Users Table */}
@@ -1668,10 +1723,11 @@ export function UserManagement() {
                 <TabsTrigger value="student">Students</TabsTrigger>
                 <TabsTrigger value="parent">Parents</TabsTrigger>
                 <TabsTrigger value="nurse">Staff</TabsTrigger>
+                <TabsTrigger value="personnel">Personnel</TabsTrigger>
               </TabsList>
             </div>
 
-            {(['all', 'student', 'parent', 'nurse'] as const).map(tab => (
+            {(['all', 'student', 'parent', 'nurse', 'personnel'] as const).map(tab => (
               <TabsContent key={tab} value={tab} className="m-0">
                 <div className="overflow-x-auto">
                   <Table>
@@ -1726,6 +1782,7 @@ export function UserManagement() {
                               )}
                               {user.role === 'nurse' && <span>Clinic Staff</span>}
                               {user.role === 'admin' && <span>Full Access</span>}
+                              {user.role === 'personnel' && <span>School Personnel</span>}
                             </TableCell>
                             <TableCell className="text-right">
                               <div className="flex justify-end gap-2">

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { collection, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { logClinicVisit, dispenseMedicine, InventoryItem, MedicineDispensed } from '../lib/firestore-setup';
+import { logClinicVisit, dispenseMedicine, borrowEquipment, InventoryItem, MedicineDispensed } from '../lib/firestore-setup';
 import { saveOfflineVisit, getOfflineVisitsCount } from '../lib/offline-storage';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -23,6 +23,9 @@ import {
   Trash2,
   WifiOff,
   Activity,
+  Package,
+  Layers,
+  HeartPulse,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MedicalCertificateModal } from './MedicalCertificateModal';
@@ -40,6 +43,7 @@ interface SelectedMedicine {
   quantity: number;
   unit: string;
   availableStock: number;
+  category: 'medicine' | 'equipment' | 'consumables' | 'medical supplies';
 }
 
 // BMI calculation and category functions
@@ -87,7 +91,7 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
   const [selectedStudentAllergies, setSelectedStudentAllergies] = useState<string[]>([]);
   const [selectedStudentMedicalConditions, setSelectedStudentMedicalConditions] = useState<string[]>([]);
   const [selectedStudentImmunizations, setSelectedStudentImmunizations] = useState<string[]>([]);
-  
+
   // BMI state
   const [selectedStudentBMI, setSelectedStudentBMI] = useState<number | null>(null);
   const [selectedStudentHeight, setSelectedStudentHeight] = useState<number | null>(null);
@@ -158,13 +162,21 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
     }
   };
 
+  const getBranchFromGrade = (grade: string): 'IBED' | 'SHS' | 'College' => {
+    if (!grade) return 'IBED';
+    const g = grade.toLowerCase();
+    if (g.includes('college') || g.includes('personnel') || g.includes('staff')) return 'College';
+    if (g.includes('grade 11') || g.includes('grade 12') || g.includes('shs')) return 'SHS';
+    return 'IBED';
+  };
+
   const loadMedicines = async () => {
     try {
       const inventoryRef = collection(db, 'inventory');
       const snapshot = await getDocs(inventoryRef);
       const medicineData = snapshot.docs
         .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((item: any) => item.category === 'medicine' && item.stockQuantity > 0) as InventoryItem[];
+        .filter((item: any) => item.stockQuantity > 0) as InventoryItem[];
       setMedicines(medicineData);
     } catch (error) {
       console.error('Error loading medicines:', error);
@@ -186,7 +198,14 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
   const getFilteredMedicines = () => {
     if (!medicineSearch) return [];
     const query = medicineSearch.toLowerCase();
-    return medicines
+
+    let filtered = medicines;
+    if (formData.grade) {
+      const studentBranch = getBranchFromGrade(formData.grade);
+      filtered = filtered.filter((item: any) => item.branch === studentBranch);
+    }
+
+    return filtered
       .filter((medicine) => medicine.name.toLowerCase().includes(query))
       .slice(0, 5);
   };
@@ -205,18 +224,18 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
     setSelectedStudentAllergies(student.allergies || []);
     setSelectedStudentMedicalConditions(student.medicalConditions || []);
     setSelectedStudentImmunizations(student.immunizations || []);
-    
+
     // Set BMI information
     const height = student.height || null;
     const weight = student.weight || null;
     const age = student.age || null;
     const sex = student.sex || '';
-    
+
     setSelectedStudentHeight(height);
     setSelectedStudentWeight(weight);
     setSelectedStudentAge(age);
     setSelectedStudentSex(sex);
-    
+
     // Compute BMI if height and weight are available
     if (height && weight) {
       const bmi = computeBMI(height, weight);
@@ -236,6 +255,7 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
           quantity: 1,
           unit: medicine.unit,
           availableStock: medicine.stockQuantity,
+          category: medicine.category,
         },
       ]);
     }
@@ -368,9 +388,20 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
         nurseName: nurseName,
       });
 
-      // Dispense medicines
+      // Dispense medicines & borrow equipment
       for (const medicine of selectedMedicines) {
-        await dispenseMedicine(medicine.id, medicine.quantity, userEmail);
+        if (medicine.category === 'equipment') {
+          await borrowEquipment(
+            medicine.id,
+            formData.studentId,
+            formData.studentName,
+            formData.grade,
+            generatedVisitId,
+            userEmail
+          );
+        } else {
+          await dispenseMedicine(medicine.id, medicine.quantity, userEmail);
+        }
       }
 
       setVisitId(generatedVisitId);
@@ -487,11 +518,10 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                       <div
                         key={student.id}
                         onClick={() => handleStudentSelect(student)}
-                        className={`px-4 py-3 cursor-pointer transition-colors ${
-                          index === selectedStudentIndex
-                            ? 'bg-emerald-50'
-                            : 'hover:bg-slate-50'
-                        }`}
+                        className={`px-4 py-3 cursor-pointer transition-colors ${index === selectedStudentIndex
+                          ? 'bg-emerald-50'
+                          : 'hover:bg-slate-50'
+                          }`}
                       >
                         <div className="flex items-center gap-3">
                           <div className="p-2 bg-emerald-100 rounded-lg">
@@ -563,30 +593,26 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                 {/* BMI Information - Added here */}
                 {(selectedStudentBMI !== null || selectedStudentHeight || selectedStudentWeight || selectedStudentAge || selectedStudentSex) && (
                   <div className="mt-4 pt-4 border-t border-emerald-200">
-                    <div className={`rounded-xl border p-3 ${
-                      selectedStudentBMI !== null 
-                        ? getBMICategory(selectedStudentBMI).bg 
-                        : 'bg-slate-50 border-slate-200'
-                    }`}>
+                    <div className={`rounded-xl border p-3 ${selectedStudentBMI !== null
+                      ? getBMICategory(selectedStudentBMI).bg
+                      : 'bg-slate-50 border-slate-200'
+                      }`}>
                       <div className="flex items-center gap-2 mb-2">
-                        <Activity className={`h-4 w-4 ${
-                          selectedStudentBMI !== null 
-                            ? getBMICategory(selectedStudentBMI).color 
-                            : 'text-slate-500'
-                        }`} />
+                        <Activity className={`h-4 w-4 ${selectedStudentBMI !== null
+                          ? getBMICategory(selectedStudentBMI).color
+                          : 'text-slate-500'
+                          }`} />
                         <p className="text-xs font-semibold text-slate-700">BMI Information</p>
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1">
                         {selectedStudentBMI !== null && (
                           <div className="flex items-baseline gap-1.5">
-                            <span className={`text-2xl font-bold ${
-                              getBMICategory(selectedStudentBMI).color
-                            }`}>
+                            <span className={`text-2xl font-bold ${getBMICategory(selectedStudentBMI).color
+                              }`}>
                               {selectedStudentBMI}
                             </span>
-                            <Badge variant="outline" className={`text-xs ${
-                              getBMICategory(selectedStudentBMI).badge
-                            }`}>
+                            <Badge variant="outline" className={`text-xs ${getBMICategory(selectedStudentBMI).badge
+                              }`}>
                               {getBMICategory(selectedStudentBMI).label}
                             </Badge>
                           </div>
@@ -707,21 +733,22 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
           <div className="space-y-3" ref={medicineSearchRef}>
             <Label className="text-slate-700 flex items-center gap-2">
               <Pill className="h-4 w-4 text-blue-600" />
-              Medicines Dispensed (Optional)
+              Medical Dispense & Equipment (Optional)
             </Label>
 
             {/* Medicine Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
               <Input
-                placeholder="Type medicine name to add..."
+                placeholder={formData.studentId ? "Search medicine, supplies, or equipment..." : "Please select a student first to search items..."}
                 value={medicineSearch}
                 onChange={(e) => {
                   setMedicineSearch(e.target.value);
                   setShowMedicineSuggestions(true);
                 }}
                 onFocus={() => setShowMedicineSuggestions(true)}
-                className="h-12 pl-10 border-slate-200 bg-white shadow-sm"
+                disabled={!formData.studentId}
+                className="h-12 pl-10 border-slate-200 bg-white shadow-sm disabled:bg-slate-50 disabled:text-slate-400"
               />
 
               {/* Medicine Suggestions */}
@@ -737,16 +764,37 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                       <div
                         key={medicine.id}
                         onClick={() => handleMedicineSelect(medicine)}
-                        className="px-4 py-3 cursor-pointer hover:bg-blue-50 transition-colors"
+                        className="px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors"
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <div className="p-2 bg-blue-100 rounded-lg">
-                              <Pill className="h-4 w-4 text-blue-600" />
+                            <div className={`p-2 rounded-lg ${medicine.category === 'equipment' ? 'bg-purple-100' :
+                              medicine.category === 'consumables' ? 'bg-amber-100' :
+                                medicine.category === 'medical supplies' ? 'bg-rose-100' :
+                                  'bg-blue-100'
+                              }`}>
+                              {medicine.category === 'equipment' ? (
+                                <Package className="h-4 w-4 text-purple-600" />
+                              ) : medicine.category === 'consumables' ? (
+                                <Layers className="h-4 w-4 text-amber-600" />
+                              ) : medicine.category === 'medical supplies' ? (
+                                <HeartPulse className="h-4 w-4 text-rose-600" />
+                              ) : (
+                                <Pill className="h-4 w-4 text-blue-600" />
+                              )}
                             </div>
                             <div>
                               <p className="font-medium text-slate-900">{medicine.name}</p>
-                              <p className="text-xs text-slate-500">{medicine.unit}</p>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <Badge variant="outline" className="capitalize text-[10px] px-1.5 py-0 border-slate-200">
+                                  {medicine.category}
+                                </Badge>
+                                {medicine.branch && (
+                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-slate-50 text-slate-600 border-slate-200">
+                                    {medicine.branch}
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
                           </div>
                           <div className="text-right">
@@ -776,10 +824,26 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-xl"
+                  className={`flex items-center gap-3 p-3 border rounded-xl ${medicine.category === 'equipment' ? 'bg-purple-50/50 border-purple-200' :
+                    medicine.category === 'consumables' ? 'bg-amber-50/50 border-amber-200' :
+                      medicine.category === 'medical supplies' ? 'bg-rose-50/50 border-rose-200' :
+                        'bg-blue-50/50 border-blue-200'
+                    }`}
                 >
-                  <div className="p-2 bg-blue-100 rounded-lg">
-                    <Pill className="h-4 w-4 text-blue-600" />
+                  <div className={`p-2 rounded-lg ${medicine.category === 'equipment' ? 'bg-purple-100' :
+                    medicine.category === 'consumables' ? 'bg-amber-100' :
+                      medicine.category === 'medical supplies' ? 'bg-rose-100' :
+                        'bg-blue-100'
+                    }`}>
+                    {medicine.category === 'equipment' ? (
+                      <Package className="h-4 w-4 text-purple-600" />
+                    ) : medicine.category === 'consumables' ? (
+                      <Layers className="h-4 w-4 text-amber-600" />
+                    ) : medicine.category === 'medical supplies' ? (
+                      <HeartPulse className="h-4 w-4 text-rose-600" />
+                    ) : (
+                      <Pill className="h-4 w-4 text-blue-600" />
+                    )}
                   </div>
                   <div className="flex-1">
                     <p className="font-medium text-slate-900">{medicine.name}</p>
@@ -788,28 +852,34 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      min="1"
-                      max={medicine.availableStock}
-                      value={medicine.quantity}
-                      onChange={(e) =>
-                        updateMedicineQuantity(medicine.id, parseInt(e.target.value) || 1)
-                      }
-                      className="w-20 h-10 text-center"
-                    />
-                    <span className="text-sm text-slate-600">{medicine.unit}</span>
+                    {medicine.category === 'equipment' ? (
+                      <Badge className="bg-purple-600 text-white font-medium">1 {medicine.unit} (Borrow)</Badge>
+                    ) : (
+                      <>
+                        <Input
+                          type="number"
+                          min="1"
+                          max={medicine.availableStock}
+                          value={medicine.quantity}
+                          onChange={(e) =>
+                            updateMedicineQuantity(medicine.id, parseInt(e.target.value) || 1)
+                          }
+                          className="w-20 h-10 text-center border-slate-200"
+                        />
+                        <span className="text-sm text-slate-600">{medicine.unit}</span>
+                      </>
+                    )}
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       onClick={() => removeMedicine(medicine.id)}
-                      className="text-red-600 hover:bg-red-50"
+                      className="text-red-600 hover:bg-red-50 rounded-lg"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
-                  {medicine.quantity > medicine.availableStock && (
+                  {medicine.category !== 'equipment' && medicine.quantity > medicine.availableStock && (
                     <Badge className="bg-red-500 text-white">
                       <AlertTriangle className="h-3 w-3 mr-1" />
                       Insufficient Stock

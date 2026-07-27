@@ -581,7 +581,8 @@ export async function initializeFMCSMS() {
 export interface InventoryItem {
   id?: string;
   name: string;
-  category: 'medicine' | 'equipment';
+  category: 'medicine' | 'equipment' | 'consumables' | 'medical supplies';
+  branch: 'IBED' | 'SHS' | 'College';
   stockQuantity: number;
   unit: string; // e.g., 'tablets', 'bottles', 'pcs'
   expirationDate?: Date | null; // for medicines
@@ -590,6 +591,13 @@ export interface InventoryItem {
   createdAt: any;
   updatedAt: any;
   createdBy?: string;
+  borrowedBy?: {
+    studentId: string;
+    studentName: string;
+    grade: string;
+    visitId: string;
+    date: any;
+  }[];
 }
 
 export interface MedicineDispensed {
@@ -703,6 +711,122 @@ export async function dispenseMedicine(
   }
 }
 
+// Borrow equipment (subtract stock and register student borrow details)
+export async function borrowEquipment(
+  itemId: string,
+  studentId: string,
+  studentName: string,
+  grade: string,
+  visitId: string,
+  nurseEmail: string
+) {
+  try {
+    const itemRef = doc(db, 'inventory', itemId);
+    const itemDoc = await getDoc(itemRef);
+
+    if (!itemDoc.exists()) {
+      throw new Error('Equipment not found');
+    }
+
+    const itemData = itemDoc.data();
+    const stockBefore = itemData.stockQuantity;
+    const stockAfter = stockBefore - 1;
+
+    if (stockAfter < 0) {
+      throw new Error('Insufficient stock');
+    }
+
+    // Get current borrows list or initialize it
+    const currentBorrows = itemData.borrowedBy || [];
+    
+    // Add new borrow record
+    const newBorrow = {
+      studentId,
+      studentName,
+      grade,
+      visitId,
+      date: new Date(),
+    };
+
+    // Update equipment document
+    await updateDoc(itemRef, {
+      stockQuantity: stockAfter,
+      status: determineStockStatus(stockAfter, itemData.minStockLevel || 0),
+      borrowedBy: [...currentBorrows, newBorrow],
+      updatedAt: serverTimestamp(),
+    });
+
+    // Log transaction
+    await addDoc(collection(db, 'inventoryTransactions'), {
+      itemId,
+      itemName: itemData.name,
+      type: 'borrowed',
+      quantityChanged: -1,
+      stockBefore,
+      stockAfter,
+      studentId,
+      studentName,
+      timestamp: serverTimestamp(),
+    });
+
+    console.log(`✅ Equipment borrowed: ${itemData.name} by ${studentName}`);
+  } catch (error) {
+    console.error('❌ Error borrowing equipment:', error);
+    throw error;
+  }
+}
+
+// Return equipment (increase stock and remove student borrow details)
+export async function returnEquipment(
+  itemId: string,
+  studentId: string,
+  visitId: string
+) {
+  try {
+    const itemRef = doc(db, 'inventory', itemId);
+    const itemDoc = await getDoc(itemRef);
+
+    if (!itemDoc.exists()) {
+      throw new Error('Equipment not found');
+    }
+
+    const itemData = itemDoc.data();
+    const stockBefore = itemData.stockQuantity;
+    const stockAfter = stockBefore + 1;
+
+    // Filter out the borrow record for this student/visit
+    const currentBorrows = itemData.borrowedBy || [];
+    const updatedBorrows = currentBorrows.filter(
+      (borrow: any) => !(borrow.studentId === studentId && borrow.visitId === visitId)
+    );
+
+    // Update equipment document
+    await updateDoc(itemRef, {
+      stockQuantity: stockAfter,
+      status: determineStockStatus(stockAfter, itemData.minStockLevel || 0),
+      borrowedBy: updatedBorrows,
+      updatedAt: serverTimestamp(),
+    });
+
+    // Log transaction
+    await addDoc(collection(db, 'inventoryTransactions'), {
+      itemId,
+      itemName: itemData.name,
+      type: 'returned',
+      quantityChanged: 1,
+      stockBefore,
+      stockAfter,
+      studentId,
+      timestamp: serverTimestamp(),
+    });
+
+    console.log(`✅ Equipment returned: ${itemData.name}`);
+  } catch (error) {
+    console.error('❌ Error returning equipment:', error);
+    throw error;
+  }
+}
+
 // Determine stock status based on quantity and min level
 function determineStockStatus(quantity: number, minLevel: number): 'in_stock' | 'low_stock' | 'out_of_stock' {
   if (quantity === 0) return 'out_of_stock';
@@ -718,6 +842,8 @@ export async function getInventoryStats() {
     
     let totalMedicines = 0;
     let totalEquipment = 0;
+    let totalConsumables = 0;
+    let totalMedicalSupplies = 0;
     let lowStockCount = 0;
     let expiringSoonCount = 0;
 
@@ -726,8 +852,9 @@ export async function getInventoryStats() {
 
     snapshot.docs.forEach(doc => {
       const data = doc.data();
+      const category = data.category;
       
-      if (data.category === 'medicine') {
+      if (category === 'medicine') {
         totalMedicines++;
         
         // Check expiring soon
@@ -737,8 +864,12 @@ export async function getInventoryStats() {
             expiringSoonCount++;
           }
         }
-      } else {
+      } else if (category === 'equipment') {
         totalEquipment++;
+      } else if (category === 'consumables') {
+        totalConsumables++;
+      } else if (category === 'medical supplies') {
+        totalMedicalSupplies++;
       }
 
       if (data.status === 'low_stock' || data.status === 'out_of_stock') {
@@ -749,6 +880,8 @@ export async function getInventoryStats() {
     return {
       totalMedicines,
       totalEquipment,
+      totalConsumables,
+      totalMedicalSupplies,
       lowStockCount,
       expiringSoonCount,
     };

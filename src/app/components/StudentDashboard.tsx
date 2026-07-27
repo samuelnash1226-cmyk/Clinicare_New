@@ -156,10 +156,10 @@ export function StudentDashboard({ userEmail }: StudentDashboardProps) {
                 <h2 className="text-2xl font-bold text-slate-900">{studentData.name}</h2>
                 <div className="mt-3 flex flex-wrap gap-3">
                   <Badge className="bg-white text-slate-700 border border-slate-200">
-                    Student ID: {studentData.studentId}
+                    {studentData.role === 'personnel' ? 'Employee ID' : 'Student ID'}: {studentData.studentId}
                   </Badge>
                   <Badge className="bg-white text-slate-700 border border-slate-200">
-                    {studentData.grade}
+                    {studentData.role === 'personnel' ? 'Personnel' : studentData.grade}
                   </Badge>
                   <Badge className="bg-white text-slate-700 border border-slate-200">
                     {studentData.email}

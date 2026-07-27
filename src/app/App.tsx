@@ -17,6 +17,7 @@ import { StudentDashboard } from "./components/StudentDashboard";
 import { AddVisitForm } from "./components/AddVisitFormEnhanced";
 import { UserManagement } from "./components/UserManagement";
 import { StudentCard } from "./components/StudentCard";
+import { PersonnelCard } from "./components/PersonnelCard";
 import { SettingsPage } from "./components/SettingsPage";
 import { VisitHistory } from "./components/VisitHistory";
 import { InventoryDashboard } from "./components/InventoryDashboard";
@@ -94,7 +95,7 @@ export default function App() {
           setCurrentView("dashboard");
         } else if (userData.role === "parent") {
           setCurrentView("parent");
-        } else if (userData.role === "student") {
+        } else if (userData.role === "student" || userData.role === "personnel") {
           setCurrentView("student");
         } else {
           setCurrentView("nurse");
@@ -258,13 +259,25 @@ export default function App() {
             {currentView === "users" &&
               userRole === "admin" && <UserManagement />}
 
-            {currentView === "studentcards" && (
-              <StudentCard
-                userRole={userRole}
-                userEmail={user.email || ""}
-                studentIds={studentIds}
-              />
-            )}
+            {currentView === "studentcards" &&
+              (userRole === "admin" ||
+                userRole === "nurse" ||
+                userRole === "parent") && (
+                <StudentCard
+                  userRole={userRole}
+                  userEmail={user.email || ""}
+                  studentIds={studentIds}
+                />
+              )}
+
+            {currentView === "personnelcards" &&
+              (userRole === "admin" ||
+                userRole === "nurse") && (
+                <PersonnelCard
+                  userRole={userRole}
+                  userEmail={user.email || ""}
+                />
+              )}
 
             {currentView === "history" && <VisitHistory />}
 
@@ -293,7 +306,7 @@ export default function App() {
               )}
 
             {currentView === "student" &&
-              userRole === "student" && (
+              (userRole === "student" || userRole === "personnel") && (
                 <StudentDashboard
                   userEmail={user.email || ""}
                 />
