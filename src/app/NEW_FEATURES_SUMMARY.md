@@ -368,7 +368,7 @@ Before going live:
 
 **For:**
 Notre Dame of Kidapawan College  
-SRB ClinicCare Health Management System
+NDKC ClinicCare Health Management System
 
 ---
 
