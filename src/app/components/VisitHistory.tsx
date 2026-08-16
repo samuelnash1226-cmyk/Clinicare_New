@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Calendar as CalendarComponent } from './ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
-import { Search, Calendar, User, Stethoscope, AlertCircle, Check, Filter, X, ChevronLeft, ChevronRight, CalendarRange, Loader2, FileText } from 'lucide-react';
+import { Search, Calendar, User, Stethoscope, AlertCircle, Check, Filter, X, ChevronLeft, ChevronRight, CalendarRange, Loader2, FileText, BedDouble, Clock, BookOpen, GraduationCap, Building2, Layers } from 'lucide-react';
+import { formatBedRestDuration, getBranchFromGrade, BedBranch, isFirestoreDocId } from '../lib/firestore-setup';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
@@ -18,6 +19,7 @@ import { MedicalCertificateModal } from './MedicalCertificateModal';
 
 interface Visit {
   id: string;
+  studentId?: string;
   studentName: string;
   grade: string;
   symptoms: string;
@@ -28,6 +30,13 @@ interface Visit {
   timestamp: any;
   createdAt: any;
   status?: string;
+  // Bed rest fields
+  needsBedRest?: boolean;
+  bedId?: string | null;
+  bedName?: string | null;
+  bedStartTime?: any;
+  bedEndTime?: any | null;
+  bedNotes?: string;
 }
 
 interface Filters {
@@ -37,6 +46,7 @@ interface Filters {
   endDate: Date | undefined;
   gradeFilter: string;
   statusFilter: string;
+  branchFilter: 'all' | BedBranch;
 }
 
 export function VisitHistory() {
@@ -50,6 +60,7 @@ export function VisitHistory() {
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [showCertificate, setShowCertificate] = useState(false);
+  const [showVisitDetail, setShowVisitDetail] = useState(false);
 
   const itemsPerPage = 25;
 
@@ -60,6 +71,7 @@ export function VisitHistory() {
     endDate: undefined,
     gradeFilter: 'all',
     statusFilter: 'all',
+    branchFilter: 'all',
   });
 
   useEffect(() => {
@@ -129,19 +141,46 @@ export function VisitHistory() {
       }
 
       const visitsSnapshot = await getDocs(visitsQuery);
-      let visitsData = visitsSnapshot.docs.map(doc => ({
+      let rawVisits = visitsSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       })) as Visit[];
 
-      // Apply client-side filters
-      visitsData = visitsData.filter(visit => {
-        // Search filter
-        const searchMatch = !filters.searchTerm ||
-          visit.studentName?.toLowerCase().includes(filters.searchTerm.toLowerCase()) ||
-          visit.symptoms?.toLowerCase().includes(filters.searchTerm.toLowerCase()) ||
-          visit.grade?.toLowerCase().includes(filters.searchTerm.toLowerCase()) ||
-          visit.nurseName?.toLowerCase().includes(filters.searchTerm.toLowerCase());
+      // Load students collection to map any doc IDs or missing studentId fields to their real School ID
+      const studentsSnapshot = await getDocs(collection(db, 'students'));
+      const studentMap: Record<string, string> = {};
+      studentsSnapshot.docs.forEach(doc => {
+        const d = doc.data();
+        const schoolId = d.studentId;
+        if (schoolId && !isFirestoreDocId(schoolId)) {
+          studentMap[doc.id] = schoolId;
+          if (d.name) studentMap[d.name.trim().toLowerCase()] = schoolId;
+          if (d.email) studentMap[d.email.trim().toLowerCase()] = schoolId;
+        }
+      });
+
+      // Map resolved school IDs onto visits and apply client-side filters
+      let visitsData = rawVisits.map(visit => {
+        const resolvedSchoolId = (visit.studentId && !isFirestoreDocId(visit.studentId))
+          ? visit.studentId
+          : (studentMap[visit.studentId] || studentMap[visit.studentName?.trim().toLowerCase()] || undefined);
+        return {
+          ...visit,
+          studentId: resolvedSchoolId || (isFirestoreDocId(visit.studentId) ? undefined : visit.studentId)
+        };
+      }).filter(visit => {
+        // Search filter (School ID, Student Name, Symptoms, Grade, Nurse Name)
+        const term = filters.searchTerm.trim().toLowerCase();
+        const searchMatch = !term ||
+          visit.studentName?.toLowerCase().includes(term) ||
+          (visit.studentId && visit.studentId.toLowerCase().includes(term)) ||
+          visit.symptoms?.toLowerCase().includes(term) ||
+          visit.grade?.toLowerCase().includes(term) ||
+          visit.nurseName?.toLowerCase().includes(term);
+
+        // Branch / Department partition filter
+        const branchMatch = filters.branchFilter === 'all' ||
+          getBranchFromGrade(visit.grade) === filters.branchFilter;
 
         // Grade filter
         const gradeMatch = filters.gradeFilter === 'all' || visit.grade === filters.gradeFilter;
@@ -149,9 +188,10 @@ export function VisitHistory() {
         // Status filter
         const statusMatch = filters.statusFilter === 'all' ||
           (filters.statusFilter === 'pickup' && visit.pickupRequired) ||
-          (filters.statusFilter === 'completed' && !visit.pickupRequired);
+          (filters.statusFilter === 'bed_rest' && visit.needsBedRest) ||
+          (filters.statusFilter === 'completed' && !visit.pickupRequired && !visit.needsBedRest);
 
-        return searchMatch && gradeMatch && statusMatch;
+        return searchMatch && branchMatch && gradeMatch && statusMatch;
       });
 
       // Pagination
@@ -193,6 +233,7 @@ export function VisitHistory() {
       endDate: undefined,
       gradeFilter: 'all',
       statusFilter: 'all',
+      branchFilter: 'all',
     });
     setCurrentPage(1);
   };
@@ -201,7 +242,8 @@ export function VisitHistory() {
     return filters.searchTerm ||
       filters.datePreset !== 'all' ||
       filters.gradeFilter !== 'all' ||
-      filters.statusFilter !== 'all';
+      filters.statusFilter !== 'all' ||
+      filters.branchFilter !== 'all';
   };
 
   return (
@@ -227,6 +269,41 @@ export function VisitHistory() {
             </Badge>
           )}
         </Button>
+      </div>
+
+      {/* Department Partition Tabs */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm space-y-2">
+        <div className="flex items-center gap-2 px-3 pt-1 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+          <Filter className="h-3.5 w-3.5 text-ndkc-green" />
+          Partition Visit History by Department:
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            { id: 'all', label: 'All-in-One (All)', icon: Layers, color: 'text-slate-700' },
+            { id: 'IBED', label: 'IBED', icon: BookOpen, color: 'text-blue-600' },
+            { id: 'SHS', label: 'Senior High School', icon: GraduationCap, color: 'text-violet-600' },
+            { id: 'College', label: 'College / Staff', icon: Building2, color: 'text-emerald-600' },
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = filters.branchFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => { setFilters({ ...filters, branchFilter: tab.id as any }); setCurrentPage(1); }}
+                className={`flex items-center justify-between rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 ${
+                  isActive
+                    ? 'bg-gradient-to-r from-ndkc-green to-emerald-600 text-white shadow-md shadow-emerald-500/30'
+                    : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Icon className={`h-4 w-4 ${isActive ? 'text-white' : tab.color}`} />
+                  <span>{tab.label}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Advanced Filters Panel */}
@@ -261,13 +338,13 @@ export function VisitHistory() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {/* Search Filter */}
                   <div className="space-y-2">
-                    <Label className="text-slate-700">Search</Label>
+                    <Label className="text-slate-700 font-medium">Search School ID, Student, Symptoms</Label>
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                       <Input
-                        placeholder="Student, symptoms..."
+                        placeholder="Search School ID (e.g. 2024-0012) or Name..."
                         value={filters.searchTerm}
-                        onChange={(e) => setFilters({ ...filters, searchTerm: e.target.value })}
+                        onChange={(e) => { setFilters({ ...filters, searchTerm: e.target.value }); setCurrentPage(1); }}
                         className="pl-10"
                       />
                     </div>
@@ -334,6 +411,7 @@ export function VisitHistory() {
                         <SelectItem value="all">All Statuses</SelectItem>
                         <SelectItem value="completed">Completed</SelectItem>
                         <SelectItem value="pickup">Pickup Required</SelectItem>
+                        <SelectItem value="bed_rest">Bed Rest</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -469,8 +547,13 @@ export function VisitHistory() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              <User className="h-4 w-4 text-emerald-600" />
-                              <span className="font-medium text-slate-900">{visit.studentName}</span>
+                              <User className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                              <div>
+                                <span className="font-medium text-slate-900 block">{visit.studentName}</span>
+                                {visit.studentId && !isFirestoreDocId(visit.studentId) && (
+                                  <span className="text-xs text-slate-500 font-mono block">ID: {visit.studentId}</span>
+                                )}
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell>
@@ -492,31 +575,55 @@ export function VisitHistory() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            {visit.pickupRequired ? (
-                              <Badge className="bg-amber-100 text-amber-700 border-amber-200">
-                                <AlertCircle className="h-3 w-3 mr-1" />
-                                Pickup Required
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
-                                <Check className="h-3 w-3 mr-1" />
-                                Completed
-                              </Badge>
-                            )}
+                            <div className="flex flex-wrap gap-1">
+                              {visit.needsBedRest && (
+                                <Badge className="bg-sky-100 text-sky-700 border-sky-200">
+                                  <BedDouble className="h-3 w-3 mr-1" />
+                                  Bed Rest
+                                </Badge>
+                              )}
+                              {visit.pickupRequired ? (
+                                <Badge className="bg-amber-100 text-amber-700 border-amber-200">
+                                  <AlertCircle className="h-3 w-3 mr-1" />
+                                  Pickup Required
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
+                                  <Check className="h-3 w-3 mr-1" />
+                                  Completed
+                                </Badge>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell>
-                            <Button
-                              onClick={() => {
-                                setSelectedVisit(visit);
-                                setShowCertificate(true);
-                              }}
-                              variant="ghost"
-                              size="sm"
-                              className="text-ndkc-green hover:bg-ndkc-green/10 hover:text-ndkc-green"
-                            >
-                              <FileText className="h-4 w-4 mr-1" />
-                              View
-                            </Button>
+                            <div className="flex gap-1">
+                              {visit.needsBedRest && (
+                                <Button
+                                  onClick={() => {
+                                    setSelectedVisit(visit);
+                                    setShowVisitDetail(true);
+                                  }}
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-sky-600 hover:bg-sky-50 hover:text-sky-700"
+                                  title="View bed rest details"
+                                >
+                                  <BedDouble className="h-4 w-4" />
+                                </Button>
+                              )}
+                              <Button
+                                onClick={() => {
+                                  setSelectedVisit(visit);
+                                  setShowCertificate(true);
+                                }}
+                                variant="ghost"
+                                size="sm"
+                                className="text-ndkc-green hover:bg-ndkc-green/10 hover:text-ndkc-green"
+                              >
+                                <FileText className="h-4 w-4 mr-1" />
+                                View
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))
@@ -630,6 +737,7 @@ export function VisitHistory() {
         <MedicalCertificateModal
           visitData={{
             visitId: selectedVisit.id,
+            studentId: selectedVisit.studentId,
             studentName: selectedVisit.studentName,
             grade: selectedVisit.grade,
             symptoms: selectedVisit.symptoms,
@@ -646,6 +754,88 @@ export function VisitHistory() {
           }}
         />
       )}
+
+      {/* Bed Rest Detail Dialog */}
+      <Dialog open={showVisitDetail} onOpenChange={open => { if (!open) { setShowVisitDetail(false); setSelectedVisit(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BedDouble className="h-5 w-5 text-sky-500" />
+              Bed Rest Details
+            </DialogTitle>
+          </DialogHeader>
+          {selectedVisit && (
+            <div className="space-y-4 py-2">
+              {/* Student + Visit info */}
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <User className="h-4 w-4 text-emerald-600" />
+                  <span className="font-semibold text-slate-900">{selectedVisit.studentName}</span>
+                  <Badge variant="outline" className="text-xs">{selectedVisit.grade}</Badge>
+                </div>
+                <p className="text-xs text-slate-500">{formatDate(selectedVisit.timestamp || selectedVisit.createdAt)}</p>
+              </div>
+
+              {/* Bed Rest Info */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-xl border px-4 py-3 bg-white border-slate-200">
+                  <span className="text-sm text-slate-600 font-medium">Bed Rest</span>
+                  <Badge className={selectedVisit.needsBedRest ? 'bg-sky-100 text-sky-700 border-sky-200' : 'bg-slate-100 text-slate-600'}>
+                    {selectedVisit.needsBedRest ? '✓ Yes' : '✗ No'}
+                  </Badge>
+                </div>
+
+                {selectedVisit.needsBedRest && (
+                  <>
+                    <div className="flex items-center justify-between rounded-xl border px-4 py-3 bg-white border-slate-200">
+                      <span className="text-sm text-slate-600 font-medium">Assigned Bed</span>
+                      <span className="text-sm font-semibold text-sky-700">
+                        {selectedVisit.bedName || '—'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-xl border px-4 py-3 bg-white border-slate-200">
+                      <span className="text-sm text-slate-600 font-medium">Start Time</span>
+                      <span className="text-sm text-slate-800">
+                        {selectedVisit.bedStartTime
+                          ? formatDate(selectedVisit.bedStartTime)
+                          : '—'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-xl border px-4 py-3 bg-white border-slate-200">
+                      <span className="text-sm text-slate-600 font-medium">End Time</span>
+                      <span className="text-sm text-slate-800">
+                        {selectedVisit.bedEndTime
+                          ? formatDate(selectedVisit.bedEndTime)
+                          : <span className="text-amber-600 font-medium">In Progress</span>}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-xl border px-4 py-3 bg-sky-50/50 border-sky-200">
+                      <span className="text-sm text-slate-700 font-medium flex items-center gap-1.5">
+                        <Clock className="h-4 w-4 text-sky-600" />
+                        Total Rest Duration
+                      </span>
+                      <span className="text-sm font-bold text-sky-700">
+                        {formatBedRestDuration(selectedVisit.bedStartTime, selectedVisit.bedEndTime)}
+                        {!selectedVisit.bedEndTime && <span className="ml-1.5 text-xs text-amber-600 font-medium font-normal">(Ongoing)</span>}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <Button
+                onClick={() => { setShowVisitDetail(false); setSelectedVisit(null); }}
+                className="w-full bg-gradient-to-r from-sky-500 to-blue-600"
+              >
+                Close
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

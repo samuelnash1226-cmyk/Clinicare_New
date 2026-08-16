@@ -1,5 +1,5 @@
 import { db } from './firebase';
-import { collection, doc, setDoc, getDoc, addDoc, serverTimestamp, getDocs, updateDoc, increment, query, where, Timestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, addDoc, serverTimestamp, getDocs, updateDoc, increment, query, where, Timestamp, writeBatch } from 'firebase/firestore';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from './firebase';
 import emailjs from 'emailjs-com';
@@ -27,6 +27,62 @@ export interface ClinicVisit {
   createdAt?: any;
   status?: string;
   loggedBy?: string;
+  // Bed Rest fields
+  needsBedRest?: boolean;
+  bedId?: string | null;
+  bedName?: string | null;
+  bedStartTime?: any;
+  bedEndTime?: any | null;
+  bedNotes?: string;
+}
+
+export type BedBranch = 'IBED' | 'SHS' | 'College';
+
+export function isFirestoreDocId(id?: string): boolean {
+  if (!id) return true;
+  return id.length >= 16 && id.length <= 32 && /^[a-zA-Z0-9]+$/.test(id);
+}
+
+export function getBranchFromGrade(grade?: string): BedBranch {
+  if (!grade) return 'IBED';
+  const g = grade.trim().toLowerCase();
+  if (
+    g.includes('college') ||
+    g.includes('personnel') ||
+    g.includes('staff') ||
+    g.includes('faculty') ||
+    g.includes('bs') ||
+    g.includes('ba') ||
+    g.includes('tertiary') ||
+    g.includes('1st year') ||
+    g.includes('2nd year') ||
+    g.includes('3rd year') ||
+    g.includes('4th year')
+  ) {
+    return 'College';
+  }
+  if (
+    g.includes('grade 11') ||
+    g.includes('grade 12') ||
+    g.includes('shs') ||
+    g.includes('senior high') ||
+    g.includes('g11') ||
+    g.includes('g12')
+  ) {
+    return 'SHS';
+  }
+  return 'IBED';
+}
+
+export interface Bed {
+  id: string;
+  bedName: string;
+  branch: BedBranch;
+  status: 'Available' | 'Occupied';
+  currentVisitId: string | null;
+  currentStudentName: string | null;
+  currentBedStartTime?: any;
+  createdAt?: any;
 }
 
 export async function initializeFirestore() {
@@ -43,10 +99,142 @@ export async function initializeFirestore() {
         // Collections will be created when first document is added
       }
     }
+
+    // Initialize beds if none exist
+    await initializeBeds();
     
     console.log('Firestore initialization complete');
   } catch (error) {
     console.error('Error initializing Firestore:', error);
+  }
+}
+
+// ───────────────────────────── BED MANAGEMENT ─────────────────────────────
+
+export async function initializeBeds() {
+  try {
+    const bedsRef = collection(db, 'beds');
+    const snapshot = await getDocs(bedsRef);
+    if (!snapshot.empty) return; // Already seeded
+
+    const defaultBeds: Omit<Bed, 'id'>[] = [
+      // IBED
+      { bedName: 'IBED Bed 1', branch: 'IBED', status: 'Available', currentVisitId: null, currentStudentName: null },
+      { bedName: 'IBED Bed 2', branch: 'IBED', status: 'Available', currentVisitId: null, currentStudentName: null },
+      { bedName: 'IBED Bed 3', branch: 'IBED', status: 'Available', currentVisitId: null, currentStudentName: null },
+      { bedName: 'IBED Bed 4', branch: 'IBED', status: 'Available', currentVisitId: null, currentStudentName: null },
+      // SHS
+      { bedName: 'SHS Bed 1', branch: 'SHS', status: 'Available', currentVisitId: null, currentStudentName: null },
+      { bedName: 'SHS Bed 2', branch: 'SHS', status: 'Available', currentVisitId: null, currentStudentName: null },
+      // College
+      { bedName: 'College Bed 1', branch: 'College', status: 'Available', currentVisitId: null, currentStudentName: null },
+      { bedName: 'College Bed 2', branch: 'College', status: 'Available', currentVisitId: null, currentStudentName: null },
+    ];
+
+    const batch = writeBatch(db);
+    defaultBeds.forEach(bed => {
+      const bedDocRef = doc(bedsRef);
+      batch.set(bedDocRef, { ...bed, createdAt: serverTimestamp() });
+    });
+    await batch.commit();
+    console.log('✅ Default beds initialized');
+  } catch (error) {
+    console.error('Error initializing beds:', error);
+  }
+}
+
+export async function getBeds(branch?: BedBranch): Promise<Bed[]> {
+  try {
+    const bedsRef = collection(db, 'beds');
+    let q;
+    if (branch) {
+      q = query(bedsRef, where('branch', '==', branch));
+    } else {
+      q = query(bedsRef);
+    }
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Bed));
+  } catch (error) {
+    console.error('Error fetching beds:', error);
+    return [];
+  }
+}
+
+export async function addBed(bedName: string, branch: BedBranch): Promise<string> {
+  const bedsRef = collection(db, 'beds');
+  const docRef = await addDoc(bedsRef, {
+    bedName,
+    branch,
+    status: 'Available',
+    currentVisitId: null,
+    currentStudentName: null,
+    createdAt: serverTimestamp(),
+  });
+  return docRef.id;
+}
+
+export async function deleteBed(bedId: string): Promise<void> {
+  const bedRef = doc(db, 'beds', bedId);
+  const bedSnap = await getDoc(bedRef);
+  if (!bedSnap.exists()) throw new Error('Bed not found');
+  const bedData = bedSnap.data() as Bed;
+  if (bedData.status === 'Occupied') throw new Error('Cannot delete an occupied bed');
+  // Use updateDoc to a deleted flag — or use deleteDoc
+  const { deleteDoc } = await import('firebase/firestore');
+  await deleteDoc(bedRef);
+}
+
+export async function releaseBed(bedId: string): Promise<void> {
+  try {
+    const bedRef = doc(db, 'beds', bedId);
+    const bedSnap = await getDoc(bedRef);
+    if (!bedSnap.exists()) return;
+    const bedData = bedSnap.data() as Bed;
+
+    const batch = writeBatch(db);
+
+    // Mark bed as available
+    batch.update(bedRef, {
+      status: 'Available',
+      currentVisitId: null,
+      currentStudentName: null,
+      currentBedStartTime: null,
+    });
+
+    // If there's an active visit, update its bedEndTime
+    if (bedData.currentVisitId) {
+      const visitRef = doc(db, 'clinicVisits', bedData.currentVisitId);
+      batch.update(visitRef, { bedEndTime: serverTimestamp() });
+    }
+
+    await batch.commit();
+    console.log('✅ Bed released:', bedId);
+  } catch (error) {
+    console.error('Error releasing bed:', error);
+    throw error;
+  }
+}
+
+export function formatBedRestDuration(startTime: any, endTime?: any): string {
+  if (!startTime) return 'N/A';
+  try {
+    const start = startTime.toDate ? startTime.toDate() : (startTime.seconds ? new Date(startTime.seconds * 1000) : new Date(startTime));
+    const end = endTime
+      ? (endTime.toDate ? endTime.toDate() : (endTime.seconds ? new Date(endTime.seconds * 1000) : new Date(endTime)))
+      : new Date();
+
+    const diffMs = end.getTime() - start.getTime();
+    if (isNaN(diffMs) || diffMs < 0) return 'Just started';
+
+    const totalMins = Math.floor(diffMs / (1000 * 60));
+    if (totalMins < 1) return 'Less than 1 min';
+    if (totalMins < 60) return `${totalMins} min${totalMins !== 1 ? 's' : ''}`;
+
+    const hours = Math.floor(totalMins / 60);
+    const mins = totalMins % 60;
+    return `${hours} hr${hours !== 1 ? 's' : ''}${mins > 0 ? ` ${mins} min${mins !== 1 ? 's' : ''}` : ''}`;
+  } catch (err) {
+    return 'N/A';
   }
 }
 
@@ -134,6 +322,11 @@ export async function logClinicVisit(visitData: {
   needsPickup?: boolean;
   notes?: string;
   loggedBy?: string;
+  // Bed rest
+  needsBedRest?: boolean;
+  bedId?: string | null;
+  bedName?: string | null;
+  bedNotes?: string;
 }) {
   try {
     // Build visit data object, only including fields that have values
@@ -150,8 +343,24 @@ export async function logClinicVisit(visitData: {
       needsPickup: visitData.pickupRequired, // legacy support
       timestamp: serverTimestamp(),
       createdAt: serverTimestamp(),
-      status: visitData.pickupRequired ? 'pickup_required' : 'completed'
+      status: visitData.pickupRequired ? 'pickup_required' : 'completed',
+      // Bed rest defaults
+      needsBedRest: visitData.needsBedRest || false,
     };
+
+    // Bed rest fields
+    if (visitData.needsBedRest && visitData.bedId) {
+      visitRecord.bedId = visitData.bedId;
+      visitRecord.bedName = visitData.bedName || null;
+      visitRecord.bedStartTime = serverTimestamp();
+      visitRecord.bedEndTime = null;
+      visitRecord.bedNotes = visitData.bedNotes || '';
+      if (visitData.pickupRequired) {
+        visitRecord.status = 'pickup_required';
+      } else {
+        visitRecord.status = 'bed_rest';
+      }
+    }
 
     // Only add optional fields if they have values (not undefined)
     if (visitData.temperature) visitRecord.temperature = visitData.temperature;
@@ -163,6 +372,22 @@ export async function logClinicVisit(visitData: {
 
     // Create clinic visit record
     const visitRef = await addDoc(collection(db, 'clinicVisits'), visitRecord);
+
+    // If bed rest, mark bed as Occupied
+    if (visitData.needsBedRest && visitData.bedId) {
+      try {
+        const bedRef = doc(db, 'beds', visitData.bedId);
+        await updateDoc(bedRef, {
+          status: 'Occupied',
+          currentVisitId: visitRef.id,
+          currentStudentName: visitData.studentName,
+          currentBedStartTime: serverTimestamp(),
+        });
+        console.log('✅ Bed marked as Occupied:', visitData.bedId);
+      } catch (bedError) {
+        console.error('❌ Failed to update bed status:', bedError);
+      }
+    }
 
     console.log('✅ Clinic visit logged:', visitRef.id);
 

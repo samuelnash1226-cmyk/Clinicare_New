@@ -21,6 +21,7 @@ import { PersonnelCard } from "./components/PersonnelCard";
 import { SettingsPage } from "./components/SettingsPage";
 import { VisitHistory } from "./components/VisitHistory";
 import { InventoryDashboard } from "./components/InventoryDashboard";
+import { BedManagement } from "./components/BedManagement";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { Toaster } from "./components/ui/sonner";
 import { Loader2, Heart } from "lucide-react";
@@ -295,6 +296,12 @@ export default function App() {
                 <InventoryDashboard
                   userEmail={user.email || ""}
                 />
+              )}
+
+            {currentView === "beds" &&
+              (userRole === "admin" ||
+                userRole === "nurse") && (
+                <BedManagement />
               )}
 
             {currentView === "parent" &&

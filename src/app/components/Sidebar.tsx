@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, Settings, Activity, LogOut, User, ChevronRight, Users, GraduationCap, ChevronsLeft, ChevronsRight, Calendar, Package, IdCard, Syringe } from 'lucide-react';
+import { LayoutDashboard, FileText, Settings, Activity, LogOut, User, ChevronRight, Users, GraduationCap, ChevronsLeft, ChevronsRight, Calendar, Package, IdCard, Syringe, BedDouble } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -50,6 +50,7 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
       { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
       { id: 'personnelcards', label: 'Personnel Cards', icon: IdCard, description: 'Personnel Information' },
       { id: 'nurse', label: 'Clinic Visits', icon: Activity, description: 'Patient Records' },
+      { id: 'beds', label: 'Bed Management', icon: BedDouble, description: 'IBED, SHS & College Beds' },
       { id: 'inventory', label: 'Inventory', icon: Package, description: 'Medicines & Equipment' },
       { id: 'history', label: 'Visit History', icon: Calendar, description: 'All Past Visits' },
       { id: 'settings', label: 'Settings', icon: Settings, description: 'System Config' },
@@ -69,6 +70,7 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
           { id: 'nurse', label: 'Dashboard', icon: LayoutDashboard, description: 'Clinic Management' },
           { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
           { id: 'personnelcards', label: 'Personnel Cards', icon: IdCard, description: 'Personnel Information' },
+          { id: 'beds', label: 'Bed Management', icon: BedDouble, description: 'IBED, SHS & College Beds' },
           { id: 'inventory', label: 'Inventory', icon: Package, description: 'Medicines & Equipment' },
           { id: 'history', label: 'Visit History', icon: Calendar, description: 'All Past Visits' },
           { id: 'settings', label: 'Settings', icon: Settings, description: 'Preferences' },

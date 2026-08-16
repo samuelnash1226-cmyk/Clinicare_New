@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { collection, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { logClinicVisit, dispenseMedicine, borrowEquipment, InventoryItem, MedicineDispensed } from '../lib/firestore-setup';
+import { logClinicVisit, dispenseMedicine, borrowEquipment, InventoryItem, MedicineDispensed, getBeds, Bed, BedBranch, isFirestoreDocId } from '../lib/firestore-setup';
 import { saveOfflineVisit, getOfflineVisitsCount } from '../lib/offline-storage';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -26,6 +26,7 @@ import {
   Package,
   Layers,
   HeartPulse,
+  BedDouble,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MedicalCertificateModal } from './MedicalCertificateModal';
@@ -99,10 +100,17 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
   const [selectedStudentAge, setSelectedStudentAge] = useState<number | null>(null);
   const [selectedStudentSex, setSelectedStudentSex] = useState<string>('');
 
+  // Bed Rest state
+  const [needsBedRest, setNeedsBedRest] = useState(false);
+  const [availableBeds, setAvailableBeds] = useState<Bed[]>([]);
+  const [allBeds, setAllBeds] = useState<Bed[]>([]);
+  const [selectedBedId, setSelectedBedId] = useState<string>('');
+
   useEffect(() => {
     loadStudents();
     loadNurseName();
     loadMedicines();
+    loadAllBeds();
 
     // Online/offline listeners
     const handleOnline = () => setIsOnline(true);
@@ -162,12 +170,33 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
     }
   };
 
-  const getBranchFromGrade = (grade: string): 'IBED' | 'SHS' | 'College' => {
+  const getBranchFromGrade = (grade: string): BedBranch => {
     if (!grade) return 'IBED';
     const g = grade.toLowerCase();
     if (g.includes('college') || g.includes('personnel') || g.includes('staff')) return 'College';
     if (g.includes('grade 11') || g.includes('grade 12') || g.includes('shs')) return 'SHS';
     return 'IBED';
+  };
+
+  const loadAllBeds = async () => {
+    try {
+      const beds = await getBeds();
+      setAllBeds(beds);
+    } catch (error) {
+      console.error('Error loading beds:', error);
+    }
+  };
+
+  // Filter beds by student's branch
+  const updateAvailableBeds = (grade: string) => {
+    const branch = getBranchFromGrade(grade);
+    const filtered = allBeds.filter(b => b.branch === branch);
+    setAvailableBeds(filtered);
+    // Reset selection if not valid for new branch
+    if (selectedBedId) {
+      const stillValid = filtered.some(b => b.id === selectedBedId);
+      if (!stillValid) setSelectedBedId('');
+    }
   };
 
   const loadMedicines = async () => {
@@ -190,7 +219,7 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
       .filter(
         (student) =>
           student.name.toLowerCase().includes(query) ||
-          (student.studentId && student.studentId.toLowerCase().includes(query))
+          (student.studentId && !isFirestoreDocId(student.studentId) && student.studentId.toLowerCase().includes(query))
       )
       .slice(0, 5);
   };
@@ -211,9 +240,10 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
   };
 
   const handleStudentSelect = (student: any) => {
+    const actualStudentId = (student.studentId && !isFirestoreDocId(student.studentId)) ? student.studentId : (student.studentId || '');
     setFormData({
       ...formData,
-      studentId: student.id,
+      studentId: actualStudentId,
       studentName: student.name,
       grade: student.grade || '',
     });
@@ -243,6 +273,12 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
     } else {
       setSelectedStudentBMI(null);
     }
+
+    // Filter beds by student's branch
+    const branch = getBranchFromGrade(student.grade || '');
+    const filtered = allBeds.filter(b => b.branch === branch);
+    setAvailableBeds(filtered);
+    setSelectedBedId('');
   };
 
   const handleMedicineSelect = (medicine: InventoryItem) => {
@@ -297,6 +333,13 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
     setLoading(true);
 
     try {
+      // Validate bed rest
+      if (needsBedRest && !selectedBedId) {
+        toast.error('Please select an assigned bed for bed rest');
+        setLoading(false);
+        return;
+      }
+
       // Validate medicine quantities
       for (const medicine of selectedMedicines) {
         if (medicine.quantity > medicine.availableStock) {
@@ -370,6 +413,7 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
       }
 
       // Online mode - normal flow
+      const selectedBed = allBeds.find(b => b.id === selectedBedId);
       const generatedVisitId = await logClinicVisit({
         studentId: formData.studentId,
         studentName: formData.studentName,
@@ -386,6 +430,10 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
         pickupRequired: formData.needsPickup,
         nurseEmail: userEmail,
         nurseName: nurseName,
+        // Bed rest
+        needsBedRest,
+        bedId: needsBedRest ? selectedBedId : null,
+        bedName: needsBedRest && selectedBed ? selectedBed.bedName : null,
       });
 
       // Dispense medicines & borrow equipment
@@ -530,7 +578,7 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                           <div className="flex-1">
                             <p className="font-medium text-slate-900">{student.name}</p>
                             <div className="flex items-center gap-2 mt-1">
-                              {student.studentId && (
+                              {student.studentId && !isFirestoreDocId(student.studentId) && (
                                 <span className="text-xs text-slate-500">
                                   ID: {student.studentId}
                                 </span>
@@ -903,6 +951,82 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
               rows={4}
               className="border-slate-200 bg-white shadow-sm focus:border-ndkc-green focus:ring-2 focus:ring-ndkc-green/20"
             />
+          </div>
+
+          {/* Bed Rest Section */}
+          <div className={`rounded-2xl border-2 transition-all duration-300 ${
+            needsBedRest
+              ? 'border-sky-300 bg-gradient-to-br from-sky-50 to-blue-50/40 shadow-inner'
+              : 'border-slate-200 bg-gradient-to-br from-slate-50 to-white'
+          } p-5 space-y-4`}>
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                id="needsBedRest"
+                checked={needsBedRest}
+                onCheckedChange={(checked) => {
+                  setNeedsBedRest(checked as boolean);
+                  if (!checked) { setSelectedBedId(''); setBedNotes(''); }
+                }}
+                className="data-[state=checked]:bg-sky-600 data-[state=checked]:border-sky-600"
+              />
+              <div className="flex items-center gap-2">
+                <BedDouble className={`h-5 w-5 ${needsBedRest ? 'text-sky-600' : 'text-slate-400'}`} />
+                <div>
+                  <Label htmlFor="needsBedRest" className="text-slate-900 cursor-pointer font-semibold">
+                    Student Needs Bed Rest
+                  </Label>
+                  <p className="text-sm text-slate-500">Assign a clinic bed for the student</p>
+                </div>
+              </div>
+            </div>
+
+            <AnimatePresence>
+              {needsBedRest && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="space-y-4 overflow-hidden"
+                >
+                  {/* Assigned Bed Dropdown */}
+                  <div className="space-y-2">
+                    <Label htmlFor="assignedBed" className="text-slate-700 flex items-center gap-2">
+                      <BedDouble className="h-4 w-4 text-sky-500" />
+                      Assigned Bed *
+                    </Label>
+                    {availableBeds.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-sky-300 bg-sky-50 p-4 text-center text-sm text-sky-600">
+                        No beds available for {getBranchFromGrade(formData.grade)} branch.
+                        {!formData.studentId && ' Select a student first.'}
+                      </div>
+                    ) : (
+                      <select
+                        id="assignedBed"
+                        value={selectedBedId}
+                        onChange={e => setSelectedBedId(e.target.value)}
+                        className="h-11 w-full rounded-xl border-2 border-slate-200 bg-white px-3 text-sm focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/20"
+                        required={needsBedRest}
+                      >
+                        <option value="">-- Select a bed --</option>
+                        {availableBeds.map(bed => (
+                          <option
+                            key={bed.id}
+                            value={bed.id}
+                            disabled={bed.status === 'Occupied'}
+                          >
+                            {bed.status === 'Occupied'
+                              ? `🔴 ${bed.bedName} — Occupied (${bed.currentStudentName || 'Unknown'})`
+                              : `🟢 ${bed.bedName} — Available`}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Notify Parent Toggle */}

@@ -202,6 +202,23 @@ service cloud.firestore {
     }
 
     // ===========================
+    // BEDS COLLECTION
+    // ===========================
+    match /beds/{bedId} {
+      // Everyone authenticated can read beds (for bed dropdown in Log Visit)
+      allow read: if isAuthenticated();
+
+      // Admins and nurses can create beds
+      allow create: if isAdminOrNurse();
+
+      // Admins and nurses can update beds (mark occupied / available)
+      allow update: if isAdminOrNurse();
+
+      // Only admins can delete beds
+      allow delete: if isAdmin();
+    }
+
+    // ===========================
     // CATCH-ALL (DENY EVERYTHING ELSE)
     // ===========================
     match /{document=**} {

@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { isFirestoreDocId } from '../lib/firestore-setup';
 import { X, Download, FileText, Printer, CheckCircle2, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import html2canvas from 'html2canvas';
@@ -18,6 +19,7 @@ import ndkcLogo from '../../assets/4159ba6c115a024c404feb3e08bd2342361c9929.png'
 interface MedicalCertificateModalProps {
   visitData: {
     visitId: string;
+    studentId?: string;
     studentName: string;
     grade: string;
     symptoms: string;
@@ -66,6 +68,7 @@ export function MedicalCertificateModal({ visitData, onClose }: MedicalCertifica
               This is to certify that{' '}
               <span className="font-bold" style={{ color: '#0f172a', borderBottom: '2px solid #1C7C54' }}>
                 {visitData.studentName}
+                {visitData.studentId && !isFirestoreDocId(visitData.studentId) ? ` (ID: ${visitData.studentId})` : ''}
               </span>
               , a student of{' '}
               <span className="font-semibold" style={{ color: '#0f172a' }}>{visitData.grade}</span>, visited the
@@ -101,6 +104,7 @@ export function MedicalCertificateModal({ visitData, onClose }: MedicalCertifica
               Please be informed that{' '}
               <span className="font-bold" style={{ color: '#0f172a', borderBottom: '2px solid #1C7C54' }}>
                 {visitData.studentName}
+                {visitData.studentId && !isFirestoreDocId(visitData.studentId) ? ` (ID: ${visitData.studentId})` : ''}
               </span>{' '}
               from{' '}
               <span className="font-semibold">{visitData.grade}</span> was excused
@@ -130,6 +134,7 @@ export function MedicalCertificateModal({ visitData, onClose }: MedicalCertifica
               This document certifies that{' '}
               <span className="font-bold" style={{ color: '#0f172a', borderBottom: '2px solid #1C7C54' }}>
                 {visitData.studentName}
+                {visitData.studentId && !isFirestoreDocId(visitData.studentId) ? ` (ID: ${visitData.studentId})` : ''}
               </span>
               , enrolled in{' '}
               <span className="font-semibold" style={{ color: '#0f172a' }}>{visitData.grade}</span>, was attended

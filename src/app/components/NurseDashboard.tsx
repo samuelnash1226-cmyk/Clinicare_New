@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { collection, query, where, orderBy, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { ClinicVisit } from '../lib/firestore-setup';
-import { Plus, Search, Activity, Bell, TrendingUp, Calendar, Clock, UserCheck, FileText } from 'lucide-react';
+import { ClinicVisit, getBeds, releaseBed, Bed, formatBedRestDuration } from '../lib/firestore-setup';
+import { Plus, Search, Activity, Bell, TrendingUp, Calendar, Clock, UserCheck, FileText, BedDouble, CheckCircle2, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -28,6 +28,9 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [selectedVisit, setSelectedVisit] = useState<ClinicVisit | null>(null);
   const [showCertificate, setShowCertificate] = useState(false);
+  const [beds, setBeds] = useState<Bed[]>([]);
+  const [bedsLoading, setBedsLoading] = useState(true);
+  const [releasingBedId, setReleasingBedId] = useState<string | null>(null);
   const [stats, setStats] = useState({
     todayVisits: 0,
     notificationsSent: 0,
@@ -87,8 +90,33 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
     }
   };
 
+  const loadBeds = async () => {
+    setBedsLoading(true);
+    try {
+      const data = await getBeds();
+      setBeds(data);
+    } catch (err) {
+      console.error('Error loading beds:', err);
+    } finally {
+      setBedsLoading(false);
+    }
+  };
+
+  const handleReleaseBed = async (bed: Bed) => {
+    setReleasingBedId(bed.id);
+    try {
+      await releaseBed(bed.id);
+      await loadBeds();
+    } catch (err) {
+      console.error('Error releasing bed:', err);
+    } finally {
+      setReleasingBedId(null);
+    }
+  };
+
   useEffect(() => {
     loadTodayVisits();
+    loadBeds();
   }, []);
 
   const filteredVisits = visits.filter(visit =>
@@ -172,6 +200,95 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
         </Card>
       </div>
 
+      {/* Bed Status Card */}
+      <Card className="border-slate-200 bg-white shadow-lg">
+        <CardHeader className="border-b border-slate-100">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-slate-900">
+              <BedDouble className="h-5 w-5 text-sky-500" />
+              Bed Status
+            </CardTitle>
+            <button
+              onClick={loadBeds}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              Refresh
+            </button>
+          </div>
+        </CardHeader>
+        <CardContent className="p-4">
+          {bedsLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Activity className="h-6 w-6 animate-pulse text-slate-300" />
+            </div>
+          ) : beds.length === 0 ? (
+            <p className="text-center text-sm text-slate-400 py-4">No beds configured. Visit Bed Management to add beds.</p>
+          ) : (
+            <div className="space-y-3">
+              {(['IBED', 'SHS', 'College'] as const).map(branch => {
+                const branchBeds = beds.filter(b => b.branch === branch);
+                if (branchBeds.length === 0) return null;
+                return (
+                  <div key={branch}>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">{branch}</p>
+                    <div className="space-y-1.5">
+                      {branchBeds.map(bed => (
+                        <div
+                          key={bed.id}
+                          className={`flex items-center justify-between rounded-xl px-3 py-2.5 border transition-all ${
+                            bed.status === 'Occupied'
+                              ? 'bg-amber-50 border-amber-200'
+                              : 'bg-emerald-50 border-emerald-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <BedDouble className={`h-4 w-4 flex-shrink-0 ${
+                              bed.status === 'Occupied' ? 'text-amber-500' : 'text-emerald-500'
+                            }`} />
+                            <div>
+                              <p className="text-sm font-medium text-slate-800">{bed.bedName}</p>
+                              {bed.status === 'Occupied' && bed.currentStudentName && (
+                                <p className="text-xs text-amber-600 font-medium">
+                                  {bed.currentStudentName}
+                                  {bed.currentBedStartTime && (
+                                    <span className="ml-1 text-slate-500 font-normal">
+                                      ({formatBedRestDuration(bed.currentBedStartTime)})
+                                    </span>
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                              bed.status === 'Occupied'
+                                ? 'bg-amber-200 text-amber-800'
+                                : 'bg-emerald-200 text-emerald-800'
+                            }`}>
+                              {bed.status === 'Occupied' ? '🔴 Occupied' : '🟢 Available'}
+                            </span>
+                            {bed.status === 'Occupied' && (
+                              <button
+                                onClick={() => handleReleaseBed(bed)}
+                                disabled={releasingBedId === bed.id}
+                                className="text-xs px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 disabled:opacity-50 transition-colors font-medium"
+                              >
+                                {releasingBedId === bed.id ? '...' : 'Release'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Search Bar */}
       <div className="relative">
         <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
@@ -247,6 +364,12 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
                       <TableCell className="text-slate-600">{visit.treatment}</TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
+                          {(visit as any).needsBedRest && (
+                            <Badge className="bg-sky-50 text-sky-700 hover:bg-sky-100 w-fit">
+                              <BedDouble className="mr-1 h-3 w-3" />
+                              Bed Rest
+                            </Badge>
+                          )}
                           {visit.notifyParent && (
                             <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 w-fit">
                               <Bell className="mr-1 h-3 w-3" />
@@ -259,7 +382,7 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
                               Needs Pickup
                             </Badge>
                           )}
-                          {!visit.notifyParent && !visit.needsPickup && (
+                          {!(visit as any).needsBedRest && !visit.notifyParent && !visit.needsPickup && (
                             <Badge variant="outline" className="border-slate-200 text-slate-600 w-fit">
                               No Alert
                             </Badge>
@@ -293,6 +416,7 @@ export function NurseDashboard({ onAddVisit, userEmail }: NurseDashboardProps) {
         <MedicalCertificateModal
           visitData={{
             visitId: selectedVisit.id || '',
+            studentId: selectedVisit.studentId,
             studentName: selectedVisit.studentName,
             grade: selectedVisit.grade,
             symptoms: selectedVisit.symptoms,
