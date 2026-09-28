@@ -122,28 +122,7 @@ export function LoginPage({ onLogin, onFirstTimeSetup }: LoginPageProps) {
 
           {/* First Time Setup */}
           <div className="mt-8">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="bg-slate-50 px-4 text-slate-500 font-medium">New to the system?</span>
-              </div>
-            </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onFirstTimeSetup}
-              className="h-12 w-full mt-4 border border-slate-200 bg-white hover:bg-slate-50/50 hover:border-emerald-200 transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] group shadow-sm rounded-xl"
-            >
-              <div className="flex items-center justify-center gap-2">
-                <Sparkles className="h-4 w-4 text-ndkc-green group-hover:animate-pulse" />
-                <span className="font-semibold text-slate-700 group-hover:text-slate-900">
-                  First Time Setup
-                </span>
-              </div>
-            </Button>
           </div>
 
           {/* Features List */}
