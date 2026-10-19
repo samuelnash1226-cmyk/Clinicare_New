@@ -25,6 +25,7 @@ interface Personnel {
   age?: number;
   sex?: string;
   bmi?: number;
+  bloodPressure?: string;
   createdAt: any;
 }
 
@@ -35,6 +36,7 @@ interface EditFormData {
   weight: string;
   age: string;
   sex: string;
+  bloodPressure: string;
   allergies: string[];
   hasNoAllergies: boolean;
   currentAllergy: string;
@@ -117,6 +119,7 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
       weight: p.weight ? String(p.weight) : '',
       age: p.age ? String(p.age) : '',
       sex: p.sex || '',
+      bloodPressure: p.bloodPressure || '',
       allergies,
       hasNoAllergies: allergies.length === 0,
       currentAllergy: '',
@@ -146,6 +149,7 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
         weight: editForm.weight ? parseFloat(editForm.weight) : null,
         age: editForm.age ? parseInt(editForm.age) : null,
         sex: editForm.sex || '',
+        bloodPressure: editForm.bloodPressure.trim() || null,
         bmi,
         allergies: editForm.allergies,
         medicalConditions: editForm.medicalConditions,
@@ -254,12 +258,12 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
 
                 <CardContent className="pt-5 space-y-4">
 
-                  {/* BMI — top of card content */}
-                  {(bmiValue || p.height || p.weight) && (
+                  {/* BMI & Vitals — top of card content */}
+                  {(bmiValue || p.height || p.weight || p.bloodPressure) && (
                     <div className={`rounded-xl border p-3 ${bmiCat ? bmiCat.bg : 'bg-slate-50 border-slate-200'}`}>
                       <div className="flex items-center gap-2 mb-2">
                         <Activity className={`h-4 w-4 ${bmiCat ? bmiCat.color : 'text-slate-500'}`} />
-                        <p className="text-xs font-semibold text-slate-700">BMI Information</p>
+                        <p className="text-xs font-semibold text-slate-700">Health & Physical Information</p>
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1">
                         {bmiValue && (
@@ -273,6 +277,11 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
                           {p.weight && <span>Weight: <strong>{p.weight} kg</strong></span>}
                           {p.age   && <span>Age: <strong>{p.age} yrs</strong></span>}
                           {p.sex   && <span>Sex: <strong>{p.sex}</strong></span>}
+                          {p.bloodPressure && (
+                            <span className="inline-flex items-center gap-1 font-medium text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                              BP: <strong>{p.bloodPressure}</strong>
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -398,6 +407,17 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
                       <option value="Male">Male</option>
                       <option value="Female">Female</option>
                     </select>
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-xs text-slate-600 flex items-center gap-1">
+                      Blood Pressure <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <Input
+                      type="text"
+                      value={editForm.bloodPressure}
+                      onChange={(e) => setEditForm({ ...editForm, bloodPressure: e.target.value })}
+                      placeholder="e.g., 120/80 mmHg"
+                    />
                   </div>
                 </div>
                 {computeBMI(editForm.height, editForm.weight) !== null && (() => {

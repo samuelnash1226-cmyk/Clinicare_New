@@ -25,6 +25,7 @@ interface Student {
   age?: number;
   sex?: string;
   bmi?: number;
+  bloodPressure?: string;
   createdAt: any;
 }
 
@@ -42,6 +43,7 @@ interface EditFormData {
   weight: string;
   age: string;
   sex: string;
+  bloodPressure: string;
   allergies: string[];
   hasNoAllergies: boolean;
   currentAllergy: string;
@@ -153,6 +155,7 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
       weight: student.weight ? String(student.weight) : '',
       age: student.age ? String(student.age) : '',
       sex: student.sex || '',
+      bloodPressure: student.bloodPressure || '',
       allergies,
       hasNoAllergies: allergies.length === 0,
       currentAllergy: '',
@@ -182,6 +185,7 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
         weight: editForm.weight ? parseFloat(editForm.weight) : null,
         age: editForm.age ? parseInt(editForm.age) : null,
         sex: editForm.sex || '',
+        bloodPressure: editForm.bloodPressure.trim() || null,
         bmi,
         allergies: editForm.allergies,
         medicalConditions: editForm.medicalConditions,
@@ -297,12 +301,12 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
 
                 <CardContent className="pt-5 space-y-4">
 
-                  {/* BMI — top of card content */}
-                  {(bmiValue || student.height || student.weight) && (
+                  {/* BMI & Vitals — top of card content */}
+                  {(bmiValue || student.height || student.weight || student.bloodPressure) && (
                     <div className={`rounded-xl border p-3 ${bmiCat ? bmiCat.bg : 'bg-slate-50 border-slate-200'}`}>
                       <div className="flex items-center gap-2 mb-2">
                         <Activity className={`h-4 w-4 ${bmiCat ? bmiCat.color : 'text-slate-500'}`} />
-                        <p className="text-xs font-semibold text-slate-700">BMI Information</p>
+                        <p className="text-xs font-semibold text-slate-700">Health & Physical Information</p>
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-1">
                         {bmiValue && (
@@ -316,6 +320,11 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                           {student.weight && <span>Weight: <strong>{student.weight} kg</strong></span>}
                           {student.age   && <span>Age: <strong>{student.age} yrs</strong></span>}
                           {student.sex   && <span>Sex: <strong>{student.sex}</strong></span>}
+                          {student.bloodPressure && (
+                            <span className="inline-flex items-center gap-1 font-medium text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                              BP: <strong>{student.bloodPressure}</strong>
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -484,6 +493,17 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                       <option value="Male">Male</option>
                       <option value="Female">Female</option>
                     </select>
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="text-xs text-slate-600 flex items-center gap-1">
+                      Blood Pressure <span className="text-slate-400 font-normal">(Optional)</span>
+                    </label>
+                    <Input
+                      type="text"
+                      value={editForm.bloodPressure}
+                      onChange={(e) => setEditForm({ ...editForm, bloodPressure: e.target.value })}
+                      placeholder="e.g., 120/80 mmHg"
+                    />
                   </div>
                 </div>
                 {computeBMI(editForm.height, editForm.weight) !== null && (() => {

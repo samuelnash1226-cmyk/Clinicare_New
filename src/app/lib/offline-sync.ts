@@ -2,7 +2,7 @@
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
 import { getOfflineVisits, removeOfflineVisit, clearOfflineVisits } from './offline-storage';
-import { sendParentNotification } from './firestore-setup';
+import { sendParentNotification, sendParentSMS } from './firestore-setup';
 import { toast } from 'sonner';
 
 let syncInProgress = false;
@@ -47,27 +47,50 @@ export const syncOfflineData = async (): Promise<void> => {
       console.log(`✅ Synced visit ${offline_id} -> ${docRef.id}`);
 
       // Send parent notification if needed
-      if (visitData.notifyParent && visitData.parentEmail && visitData.parentName) {
-        try {
-          await sendParentNotification({
-            parentEmail: visitData.parentEmail,
-            parentName: visitData.parentName,
-            studentName: visitData.studentName,
-            grade: visitData.grade,
-            symptoms: visitData.symptoms,
-            treatment: visitData.treatment,
-            pickupRequired: visitData.pickupRequired || false,
-            visitDate: visitData.timestamp?.toDate
-              ? visitData.timestamp.toDate().toLocaleString()
-              : new Date(visitData.timestamp).toLocaleString(),
-            nurseName: visitData.nurseName || 'School Nurse',
-            notes: visitData.notes,
-            nurseEmail: visitData.nurseEmail,
-            parentPhone: visitData.parentPhone,
-          });
-          console.log(`✅ Sent notification for ${offline_id}`);
-        } catch (notifError) {
-          console.warn(`⚠️ Notification failed for ${offline_id}:`, notifError);
+      if (visitData.notifyParent) {
+        const visitDateStr = visitData.timestamp?.toDate
+          ? visitData.timestamp.toDate().toLocaleString()
+          : new Date(visitData.timestamp || Date.now()).toLocaleString();
+
+        if (visitData.parentEmail) {
+          try {
+            await sendParentNotification({
+              parentEmail: visitData.parentEmail,
+              parentName: visitData.parentName || 'Parent',
+              studentName: visitData.studentName,
+              grade: visitData.grade,
+              symptoms: visitData.symptoms,
+              treatment: visitData.treatment,
+              pickupRequired: visitData.pickupRequired || false,
+              visitDate: visitDateStr,
+              nurseName: visitData.nurseName || 'School Nurse',
+              notes: visitData.notes,
+              nurseEmail: visitData.nurseEmail,
+            });
+            console.log(`✅ Sent email notification for ${offline_id}`);
+          } catch (notifError) {
+            console.warn(`⚠️ Email notification failed for ${offline_id}:`, notifError);
+          }
+        }
+
+        if (visitData.parentPhone) {
+          try {
+            await sendParentSMS({
+              parentPhone: visitData.parentPhone,
+              parentName: visitData.parentName || 'Parent',
+              studentName: visitData.studentName,
+              grade: visitData.grade,
+              symptoms: visitData.symptoms,
+              treatment: visitData.treatment,
+              pickupRequired: visitData.pickupRequired || false,
+              visitDate: visitDateStr,
+              nurseName: visitData.nurseName || 'School Nurse',
+              notes: visitData.notes,
+            });
+            console.log(`✅ Sent SMS notification for ${offline_id}`);
+          } catch (smsError) {
+            console.warn(`⚠️ SMS notification failed for ${offline_id}:`, smsError);
+          }
         }
       }
 

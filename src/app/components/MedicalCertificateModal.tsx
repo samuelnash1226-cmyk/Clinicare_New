@@ -24,6 +24,7 @@ interface MedicalCertificateModalProps {
     grade: string;
     symptoms: string;
     treatment: string;
+    bloodPressure?: string;
     notes?: string;
     nurseName: string;
     timestamp: Date;
@@ -85,6 +86,12 @@ export function MedicalCertificateModal({ visitData, onClose }: MedicalCertifica
                 <span className="font-bold uppercase tracking-wide" style={{ color: '#0f172a' }}>Treatment Rendered:</span><br />
                 <span className="ml-4" style={{ color: '#1e293b' }}>{visitData.treatment}</span>
               </p>
+              {visitData.bloodPressure && (
+                <p className="text-base" style={{ color: '#1e293b' }}>
+                  <span className="font-bold uppercase tracking-wide" style={{ color: '#0f172a' }}>Blood Pressure:</span><br />
+                  <span className="ml-4" style={{ color: '#1e293b' }}>{visitData.bloodPressure}</span>
+                </p>
+              )}
               {visitData.notes && (
                 <p className="text-base" style={{ color: '#1e293b' }}>
                   <span className="font-bold uppercase tracking-wide" style={{ color: '#0f172a' }}>Recommendations:</span><br />
@@ -159,6 +166,12 @@ export function MedicalCertificateModal({ visitData, onClose }: MedicalCertifica
                 <p className="text-sm font-bold mb-2 uppercase tracking-wide" style={{ color: '#475569' }}>Treatment Provided</p>
                 <p className="text-base" style={{ color: '#0f172a' }}>{visitData.treatment}</p>
               </div>
+              {visitData.bloodPressure && (
+                <div className="pb-4" style={{ borderBottom: '1px solid #e2e8f0' }}>
+                  <p className="text-sm font-bold mb-2 uppercase tracking-wide" style={{ color: '#475569' }}>Blood Pressure</p>
+                  <p className="text-base" style={{ color: '#0f172a' }}>{visitData.bloodPressure}</p>
+                </div>
+              )}
               {visitData.notes && (
                 <div>
                   <p className="text-sm font-bold mb-2 uppercase tracking-wide" style={{ color: '#475569' }}>Additional Notes</p>

@@ -404,43 +404,45 @@ export async function logClinicVisit(visitData: {
     }
 
     // Send email and SMS notifications if parent notification is enabled
-    if (visitData.notifyParent && visitData.parentEmail) {
+    if (visitData.notifyParent && (visitData.parentEmail || visitData.parentPhone)) {
       let emailSent = false;
       let smsSent = false;
       let emailError = '';
       let smsError = '';
 
-      // Try to send email
-      try {
-        console.log('📧 Attempting to send email to:', visitData.parentEmail);
+      // Try to send email if parentEmail provided
+      if (visitData.parentEmail && visitData.parentEmail.trim()) {
+        try {
+          console.log('📧 Attempting to send email to:', visitData.parentEmail);
 
-        await sendParentNotification({
-          parentEmail: visitData.parentEmail,
-          parentName: visitData.parentName || 'Parent',
-          studentName: visitData.studentName,
-          grade: visitData.grade,
-          symptoms: visitData.symptoms,
-          treatment: visitData.treatment,
-          pickupRequired: visitData.pickupRequired,
-          visitDate: new Date().toLocaleString(),
-          nurseName: visitData.nurseName,
-          notes: visitData.notes
-        });
+          await sendParentNotification({
+            parentEmail: visitData.parentEmail.trim(),
+            parentName: visitData.parentName || 'Parent',
+            studentName: visitData.studentName,
+            grade: visitData.grade,
+            symptoms: visitData.symptoms,
+            treatment: visitData.treatment,
+            pickupRequired: visitData.pickupRequired,
+            visitDate: new Date().toLocaleString(),
+            nurseName: visitData.nurseName,
+            notes: visitData.notes
+          });
 
-        emailSent = true;
-        console.log('✅ Email sent successfully to:', visitData.parentEmail);
-      } catch (error: any) {
-        emailError = error.message;
-        console.error('❌ Email error:', error.message);
+          emailSent = true;
+          console.log('✅ Email sent successfully to:', visitData.parentEmail);
+        } catch (error: any) {
+          emailError = error.message;
+          console.error('❌ Email error:', error.message);
+        }
       }
 
       // Try to send SMS if phone number provided
-      if (visitData.parentPhone) {
+      if (visitData.parentPhone && visitData.parentPhone.trim()) {
         try {
           console.log('📱 Attempting to send SMS to:', visitData.parentPhone);
 
           await sendParentSMS({
-            parentPhone: visitData.parentPhone,
+            parentPhone: visitData.parentPhone.trim(),
             parentName: visitData.parentName || 'Parent',
             studentName: visitData.studentName,
             grade: visitData.grade,
@@ -463,7 +465,7 @@ export async function logClinicVisit(visitData: {
       // Create notification record
       try {
         const notificationData: any = {
-          parentEmail: visitData.parentEmail,
+          parentEmail: visitData.parentEmail || '',
           parentPhone: visitData.parentPhone || '',
           studentId: visitData.studentId,
           studentName: visitData.studentName,
@@ -489,8 +491,8 @@ export async function logClinicVisit(visitData: {
         console.error('❌ Failed to create notification record:', notifError);
       }
     } else {
-      if (visitData.notifyParent && !visitData.parentEmail) {
-        console.warn('⚠️ Notify parent enabled but no parent email available');
+      if (visitData.notifyParent && !visitData.parentEmail && !visitData.parentPhone) {
+        console.warn('⚠️ Notify parent enabled but neither parent email nor parent phone was available');
       }
     }
 
@@ -500,6 +502,17 @@ export async function logClinicVisit(visitData: {
     throw error;
   }
 }
+
+export const DEFAULT_EMAILJS_CONFIG = {
+  publicKey: 'oS5baCpPMFDl1rgVA',
+  serviceId: 'service_aip6vxq',
+  templateId: 'template_sk6tt9j'
+};
+
+export const DEFAULT_FMCSMS_CONFIG = {
+  apiKey: 'fmcsms_c3a64b0e69a5419146f8a92257bdf178a88df25695e719bd',
+  senderName: 'NDKC ClinicCare'
+};
 
 export async function sendParentNotification(data: {
   parentEmail: string;
@@ -517,59 +530,36 @@ export async function sendParentNotification(data: {
 }) {
   console.log('📧 sendParentNotification called');
   console.log('📧 Target email:', data.parentEmail);
+
+  if (!data.parentEmail || !data.parentEmail.includes('@')) {
+    throw new Error(`Invalid recipient email address: "${data.parentEmail}"`);
+  }
   
   try {
-    // Get EmailJS credentials from settings
-    console.log('🔍 Checking for EmailJS settings...');
-    const settingsRef = doc(db, 'settings', 'emailjs');
-    const settingsDoc = await getDoc(settingsRef);
-    
-    if (!settingsDoc.exists()) {
-      const errorMsg = '❌ EmailJS NOT CONFIGURED!\n\n' +
-        '📝 TO FIX:\n' +
-        '1. Go to https://www.emailjs.com and sign up (FREE)\n' +
-        '2. Create an email service (Gmail/Outlook/etc)\n' +
-        '3. Create an email template with these variables:\n' +
-        '   - {{to_email}}, {{to_name}}, {{student_name}}, {{grade}}\n' +
-        '   - {{symptoms}}, {{treatment}}, {{pickup_required}}\n' +
-        '   - {{visit_date}}, {{nurse_name}}, {{subject}}\n' +
-        '4. Get your Service ID, Template ID, and Public Key\n' +
-        '5. In the app: Settings → Email Configuration\n' +
-        '6. Enter your credentials and save\n\n' +
-        `📋 Email that would have been sent to: ${data.parentEmail}\n` +
-        `👤 Student: ${data.studentName} (${data.grade})\n` +
-        `🩺 Symptoms: ${data.symptoms}\n` +
-        `💊 Treatment: ${data.treatment}\n` +
-        `🚗 Pickup Required: ${data.pickupRequired ? 'YES' : 'No'}`;
-      
-      console.warn(errorMsg);
-      throw new Error('EmailJS not configured. Visit Settings to set up email notifications.');
+    let serviceId = DEFAULT_EMAILJS_CONFIG.serviceId;
+    let templateId = DEFAULT_EMAILJS_CONFIG.templateId;
+    let publicKey = DEFAULT_EMAILJS_CONFIG.publicKey;
+
+    // Get EmailJS credentials from settings if available
+    try {
+      console.log('🔍 Checking for EmailJS settings in Firestore...');
+      const settingsRef = doc(db, 'settings', 'emailjs');
+      const settingsDoc = await getDoc(settingsRef);
+      if (settingsDoc.exists()) {
+        const emailSettings = settingsDoc.data();
+        if (emailSettings.serviceId) serviceId = emailSettings.serviceId;
+        if (emailSettings.templateId) templateId = emailSettings.templateId;
+        if (emailSettings.publicKey) publicKey = emailSettings.publicKey;
+      }
+    } catch (readErr) {
+      console.warn('⚠️ Could not read settings/emailjs from Firestore, using default config:', readErr);
     }
 
-    const emailSettings = settingsDoc.data();
-    const { serviceId, templateId, publicKey } = emailSettings;
+    console.log('✅ Using EmailJS credentials (Service:', serviceId ? '✓' : '✗', 'Template:', templateId ? '✓' : '✗', 'Key:', publicKey ? '✓' : '✗', ')');
 
-    console.log('✅ EmailJS settings found');
-    console.log('📝 Service ID:', serviceId ? '✓' : '✗');
-    console.log('📝 Template ID:', templateId ? '✓' : '✗');
-    console.log('📝 Public Key:', publicKey ? '✓' : '✗');
-
-    if (!serviceId || !templateId || !publicKey) {
-      const errorMsg = '❌ EmailJS credentials INCOMPLETE!\n\n' +
-        `Service ID: ${serviceId ? '✓ Found' : '✗ Missing'}\n` +
-        `Template ID: ${templateId ? '✓ Found' : '✗ Missing'}\n` +
-        `Public Key: ${publicKey ? '✓ Found' : '✗ Missing'}\n\n` +
-        'Go to Settings → Email Configuration and enter ALL credentials.';
-      
-      console.error(errorMsg);
-      throw new Error('EmailJS credentials incomplete. Check Settings.');
-    }
-
-    // Send email using EmailJS
-    console.log('📤 Sending email via EmailJS...');
     const templateParams = {
       to_email: data.parentEmail,
-      to_name: data.parentName,
+      to_name: data.parentName || 'Parent',
       student_name: data.studentName,
       grade: data.grade,
       symptoms: data.symptoms,
@@ -589,12 +579,39 @@ export async function sendParentNotification(data: {
       pickup: data.pickupRequired
     });
 
-    await emailjs.send(serviceId, templateId, templateParams, publicKey);
-    console.log('✅ ✅ ✅ Email sent successfully via EmailJS to:', data.parentEmail);
+    // Attempt 1: via emailjs-com SDK
+    try {
+      await emailjs.send(serviceId, templateId, templateParams, publicKey);
+      console.log('✅ ✅ ✅ Email sent successfully via EmailJS SDK to:', data.parentEmail);
+      return { success: true, method: 'sdk' };
+    } catch (sdkError: any) {
+      console.warn('⚠️ emailjs.send SDK failed, attempting direct fetch API fallback...', sdkError);
+
+      // Attempt 2: Direct REST API fetch to EmailJS
+      const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, text/plain, */*'
+        },
+        body: JSON.stringify({
+          service_id: serviceId,
+          template_id: templateId,
+          user_id: publicKey,
+          template_params: templateParams
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`EmailJS API Error (${response.status}): ${errorText || response.statusText}`);
+      }
+
+      console.log('✅ ✅ ✅ Email sent successfully via EmailJS REST API fallback to:', data.parentEmail);
+      return { success: true, method: 'rest' };
+    }
   } catch (error: any) {
     console.error('❌ Error in sendParentNotification:', error);
-    console.error('❌ Error message:', error.message);
-    console.error('❌ Error code:', error.code);
     throw error;
   }
 }
@@ -607,7 +624,7 @@ export async function updateEmailSettings(serviceId: string, templateId: string,
       templateId,
       publicKey,
       updatedAt: serverTimestamp()
-    });
+    }, { merge: true });
 
     console.log('EmailJS settings updated successfully');
   } catch (error) {
@@ -625,10 +642,10 @@ export async function getEmailSettings() {
       return settingsDoc.data();
     }
 
-    return null;
+    return DEFAULT_EMAILJS_CONFIG;
   } catch (error) {
     console.error('Error getting EmailJS settings:', error);
-    return null;
+    return DEFAULT_EMAILJS_CONFIG;
   }
 }
 
@@ -636,7 +653,7 @@ export async function getEmailSettings() {
 // SMS NOTIFICATIONS (FMCSMS)
 // ===========================
 
-async function sendParentSMS(data: {
+export async function sendParentSMS(data: {
   parentPhone: string;
   parentName: string;
   studentName: string;
@@ -651,49 +668,56 @@ async function sendParentSMS(data: {
   console.log('📱 sendParentSMS called');
   console.log('📱 Target phone:', data.parentPhone);
 
+  if (!data.parentPhone || !data.parentPhone.trim()) {
+    throw new Error('No recipient phone number provided for SMS');
+  }
+
   try {
-    // Get FMCSMS credentials from settings
-    console.log('🔍 Checking for FMCSMS settings...');
-    const settingsRef = doc(db, 'settings', 'fmcsms');
-    const settingsDoc = await getDoc(settingsRef);
+    let apiKey = DEFAULT_FMCSMS_CONFIG.apiKey;
+    let senderName = DEFAULT_FMCSMS_CONFIG.senderName;
 
-    if (!settingsDoc.exists()) {
-      console.warn('⚠️ FMCSMS not configured - skipping SMS');
-      throw new Error('FMCSMS not configured.');
+    // Get FMCSMS credentials from settings if available
+    try {
+      console.log('🔍 Checking for FMCSMS settings...');
+      const settingsRef = doc(db, 'settings', 'fmcsms');
+      const settingsDoc = await getDoc(settingsRef);
+
+      if (settingsDoc.exists()) {
+        const smsSettings = settingsDoc.data();
+        if (smsSettings.apiKey) apiKey = smsSettings.apiKey;
+        if (smsSettings.senderName) senderName = smsSettings.senderName;
+      }
+    } catch (readErr) {
+      console.warn('⚠️ Could not read settings/fmcsms from Firestore, using default config:', readErr);
     }
 
-    const smsSettings = settingsDoc.data();
-    const { apiKey, senderName } = smsSettings;
-
-    if (!apiKey || !senderName) {
-      console.warn('⚠️ FMCSMS credentials incomplete - skipping SMS');
-      throw new Error('FMCSMS credentials incomplete.');
-    }
-
-    console.log('✅ FMCSMS settings found');
+    console.log('✅ Using FMCSMS credentials (Sender:', senderName, ')');
 
     // Format phone number to international format (+639XXXXXXXXX)
     let phone = data.parentPhone.replace(/[\s\-\(\)\+]/g, '');
     if (phone.startsWith('0')) {
       phone = '63' + phone.substring(1);
-    }
-    if (!phone.startsWith('63')) {
+    } else if (!phone.startsWith('63')) {
       phone = '63' + phone;
     }
-    const formattedPhone = '+' + phone;
 
+    if (phone.length < 12) {
+      throw new Error(`Invalid mobile number format: "${data.parentPhone}". Expected 11 digits (e.g., 09516495356).`);
+    }
+
+    const formattedPhone = '+' + phone;
     console.log('📱 Formatted phone:', data.parentPhone, '→', formattedPhone);
 
     // Format SMS message - must be under 160 characters
     const pickupStatus = data.pickupRequired ? 'YES' : 'NO';
 
     // Build message with character limit in mind
-    let message = `Dear ${data.parentName},\n\n${data.studentName} (${data.grade}) visited clinic.\n\nSymptoms: ${data.symptoms}\nTreatment: ${data.treatment}\nTime: ${data.visitDate}\nNurse: ${data.nurseName}\n\nPickup needed: ${pickupStatus}\n\n-NDKC Clinic`;
+    let message = `Dear ${data.parentName || 'Parent'},\n\n${data.studentName} (${data.grade}) visited clinic.\n\nSymptoms: ${data.symptoms}\nTreatment: ${data.treatment}\nTime: ${data.visitDate}\nNurse: ${data.nurseName}\n\nPickup needed: ${pickupStatus}\n\n-NDKC Clinic`;
 
     // Truncate if over 160 characters
     if (message.length > 160) {
       // Try shorter version without time
-      message = `Dear ${data.parentName},\n\n${data.studentName} (${data.grade}) at clinic.\n\nSymptoms: ${data.symptoms}\nTreatment: ${data.treatment}\nNurse: ${data.nurseName}\n\nPickup: ${pickupStatus}\n\n-NDKC`;
+      message = `Dear ${data.parentName || 'Parent'},\n\n${data.studentName} (${data.grade}) at clinic.\n\nSymptoms: ${data.symptoms}\nTreatment: ${data.treatment}\nNurse: ${data.nurseName}\n\nPickup: ${pickupStatus}\n\n-NDKC`;
 
       // If still too long, truncate symptoms and treatment
       if (message.length > 160) {
@@ -702,7 +726,7 @@ async function sendParentSMS(data: {
         const symptoms = data.symptoms.length > maxSymptoms ? data.symptoms.substring(0, maxSymptoms) + '...' : data.symptoms;
         const treatment = data.treatment.length > maxTreatment ? data.treatment.substring(0, maxTreatment) + '...' : data.treatment;
 
-        message = `Dear ${data.parentName},\n\n${data.studentName} at clinic.\n\nSymptoms: ${symptoms}\nTreatment: ${treatment}\n\nPickup: ${pickupStatus}\n\n-NDKC Clinic`;
+        message = `Dear ${data.parentName || 'Parent'},\n\n${data.studentName} at clinic.\n\nSymptoms: ${symptoms}\nTreatment: ${treatment}\n\nPickup: ${pickupStatus}\n\n-NDKC Clinic`;
 
         // Final truncation if still too long
         if (message.length > 160) {
@@ -719,6 +743,7 @@ async function sendParentSMS(data: {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
         'X-API-Key': apiKey,
       },
       body: JSON.stringify({
@@ -729,14 +754,22 @@ async function sendParentSMS(data: {
       }),
     });
 
-    const result = await response.json();
+    const responseText = await response.text();
+    let result: any;
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      result = { message: responseText };
+    }
+
     console.log('📱 FMCSMS Response:', result);
 
-    if (!response.ok) {
-      throw new Error(`FMCSMS API Error: ${response.status} - ${JSON.stringify(result)}`);
+    if (!response.ok || (result && result.success === false)) {
+      throw new Error(`FMCSMS API Error: ${result.error || result.message || response.statusText || response.status}`);
     }
 
     console.log('✅ ✅ ✅ SMS sent successfully via FMCSMS!');
+    return result;
   } catch (error: any) {
     console.error('❌ Error in sendParentSMS:', error);
     throw error;
@@ -750,7 +783,7 @@ export async function updateSMSSettings(apiKey: string, senderName: string) {
       apiKey,
       senderName,
       updatedAt: serverTimestamp()
-    });
+    }, { merge: true });
 
     console.log('FMCSMS settings updated successfully');
   } catch (error) {
@@ -768,34 +801,28 @@ export async function getSMSSettings() {
       return settingsDoc.data();
     }
 
-    return null;
+    return DEFAULT_FMCSMS_CONFIG;
   } catch (error) {
     console.error('Error getting FMCSMS settings:', error);
-    return null;
+    return DEFAULT_FMCSMS_CONFIG;
   }
 }
 
-// Initialize FMCSMS with your API key (run this once)
+// Initialize FMCSMS with your API key
 export async function initializeFMCSMS() {
   try {
     console.log('🚀 Initializing FMCSMS settings...');
 
     await updateSMSSettings(
-      'fmcsms_c3a64b0e69a5419146f8a92257bdf178a88df25695e719bd',
-      'NDKC ClinicCare'
+      DEFAULT_FMCSMS_CONFIG.apiKey,
+      DEFAULT_FMCSMS_CONFIG.senderName
     );
 
     console.log('✅ ✅ ✅ FMCSMS initialized successfully!');
-    console.log('📱 SMS notifications are now enabled');
-    console.log('');
-    console.log('Settings:');
-    console.log('  API Key: fmcsms_c3a64b0e69a5419146f8a92257bdf178a88df25695e719bd');
-    console.log('  Sender Name: NDKC ClinicCare');
-
     return true;
   } catch (error) {
-    console.error('❌ Failed to initialize FMCSMS:', error);
-    throw error;
+    console.warn('⚠️ Non-critical notice: Failed to save FMCSMS settings to Firestore (will use built-in configuration):', error);
+    return false;
   }
 }
 

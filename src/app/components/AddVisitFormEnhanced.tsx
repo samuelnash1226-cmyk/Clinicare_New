@@ -27,6 +27,9 @@ import {
   Layers,
   HeartPulse,
   BedDouble,
+  Mail,
+  Phone,
+  ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MedicalCertificateModal } from './MedicalCertificateModal';
@@ -84,6 +87,7 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
     grade: '',
     symptoms: '',
     treatment: '',
+    bloodPressure: '',
     notes: '',
     notifyParent: true,
     needsPickup: false,
@@ -99,6 +103,7 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
   const [selectedStudentWeight, setSelectedStudentWeight] = useState<number | null>(null);
   const [selectedStudentAge, setSelectedStudentAge] = useState<number | null>(null);
   const [selectedStudentSex, setSelectedStudentSex] = useState<string>('');
+  const [selectedStudentBloodPressure, setSelectedStudentBloodPressure] = useState<string>('');
 
   // Bed Rest state
   const [needsBedRest, setNeedsBedRest] = useState(false);
@@ -106,11 +111,20 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
   const [allBeds, setAllBeds] = useState<Bed[]>([]);
   const [selectedBedId, setSelectedBedId] = useState<string>('');
 
+  // Parent notification details
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [selectedStudentDocId, setSelectedStudentDocId] = useState<string>('');
+  const [parentEmail, setParentEmail] = useState<string>('');
+  const [parentPhone, setParentPhone] = useState<string>('');
+  const [parentName, setParentName] = useState<string>('');
+  const [isParentLinked, setIsParentLinked] = useState<boolean>(false);
+
   useEffect(() => {
     loadStudents();
     loadNurseName();
     loadMedicines();
     loadAllBeds();
+    loadAllUsers();
 
     // Online/offline listeners
     const handleOnline = () => setIsOnline(true);
@@ -159,14 +173,26 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
     try {
       const usersRef = collection(db, 'users');
       const usersSnapshot = await getDocs(usersRef);
-      const nurseUser = usersSnapshot.docs.find((doc) => doc.data().email === userEmail);
+      const userDocs = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllUsers(userDocs);
+      const nurseUser = userDocs.find((u: any) => u.email === userEmail);
 
       if (nurseUser) {
-        const nurseName = nurseUser.data().name || 'Nurse';
+        const nurseName = nurseUser.name || 'Nurse';
         setNurseName(nurseName);
       }
     } catch (error) {
-      console.error('Error loading nurse name:', error);
+      console.error('Error loading nurse name/users:', error);
+    }
+  };
+
+  const loadAllUsers = async () => {
+    try {
+      const usersRef = collection(db, 'users');
+      const usersSnapshot = await getDocs(usersRef);
+      setAllUsers(usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (error) {
+      console.warn('Error loading users for parent matching:', error);
     }
   };
 
@@ -239,16 +265,72 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
       .slice(0, 5);
   };
 
+  const findParentForStudent = (studentDoc: any, usersList: any[]) => {
+    if (!studentDoc) return null;
+
+    const sDocId = studentDoc.id || '';
+    const sSchoolId = studentDoc.studentId || '';
+
+    // 1. Search in users collection for parent linked via studentIds
+    const parent = usersList.find((u: any) => {
+      if (u.role !== 'parent' || !Array.isArray(u.studentIds)) return false;
+      return (
+        (sDocId && u.studentIds.includes(sDocId)) ||
+        (sSchoolId && u.studentIds.includes(sSchoolId)) ||
+        (sDocId && u.studentIds.map(String).includes(String(sDocId)))
+      );
+    });
+
+    if (parent) {
+      return {
+        name: parent.name || 'Parent',
+        email: parent.email || '',
+        phone: parent.phone || '',
+        isLinked: true
+      };
+    }
+
+    // 2. Check if student document directly has parent contact info
+    if (studentDoc.parentEmail || studentDoc.parentPhone || studentDoc.emergencyContactPhone) {
+      return {
+        name: studentDoc.parentName || studentDoc.emergencyContactName || 'Parent',
+        email: studentDoc.parentEmail || '',
+        phone: studentDoc.parentPhone || studentDoc.emergencyContactPhone || '',
+        isLinked: true
+      };
+    }
+
+    return null;
+  };
+
   const handleStudentSelect = (student: any) => {
     const actualStudentId = (student.studentId && !isFirestoreDocId(student.studentId)) ? student.studentId : (student.studentId || '');
-    setFormData({
-      ...formData,
+    const bp = student.bloodPressure || '';
+    setSelectedStudentDocId(student.id || '');
+    setSelectedStudentBloodPressure(bp);
+    setFormData((prev) => ({
+      ...prev,
       studentId: actualStudentId,
       studentName: student.name,
       grade: student.grade || '',
-    });
+      bloodPressure: prev.bloodPressure || bp,
+    }));
     setStudentSearch(student.name);
     setShowStudentSuggestions(false);
+
+    // Look up parent contact info immediately
+    const pInfo = findParentForStudent(student, allUsers);
+    if (pInfo) {
+      setParentName(pInfo.name || '');
+      setParentEmail(pInfo.email || '');
+      setParentPhone(pInfo.phone || '');
+      setIsParentLinked(true);
+    } else {
+      setParentName('');
+      setParentEmail('');
+      setParentPhone('');
+      setIsParentLinked(false);
+    }
 
     // Set allergies, medical conditions, and immunizations
     setSelectedStudentAllergies(student.allergies || []);
@@ -347,33 +429,24 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
         }
       }
 
-      // Find parent
-      let parentEmail = '';
-      let parentName = '';
-      let parentPhone = '';
+      // Determine final parent contact info
+      let finalParentEmail = parentEmail?.trim() || '';
+      let finalParentName = parentName?.trim() || '';
+      let finalParentPhone = parentPhone?.trim() || '';
 
-      if (formData.notifyParent && isOnline) {
+      if (formData.notifyParent && (!finalParentEmail || !finalParentPhone) && isOnline) {
         try {
-          const usersRef = collection(db, 'users');
-          const usersSnapshot = await getDocs(usersRef);
-          const parentUser = usersSnapshot.docs.find((doc) => {
-            const userData = doc.data();
-            return (
-              userData.role === 'parent' &&
-              userData.studentIds &&
-              Array.isArray(userData.studentIds) &&
-              userData.studentIds.includes(formData.studentId)
-            );
-          });
-
-          if (parentUser) {
-            const parentData = parentUser.data();
-            parentEmail = parentData.email;
-            parentName = parentData.name;
-            parentPhone = parentData.phone || '';
+          const selectedStudentDoc = students.find(
+            s => (selectedStudentDocId && s.id === selectedStudentDocId) || (formData.studentId && s.studentId === formData.studentId)
+          );
+          const pInfo = findParentForStudent(selectedStudentDoc, allUsers);
+          if (pInfo) {
+            if (!finalParentEmail) finalParentEmail = pInfo.email || '';
+            if (!finalParentName) finalParentName = pInfo.name || '';
+            if (!finalParentPhone) finalParentPhone = pInfo.phone || '';
           }
         } catch (err) {
-          console.warn('Could not fetch parent data (offline mode)');
+          console.warn('Could not fetch parent data fallback:', err);
         }
       }
 
@@ -385,13 +458,14 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
           grade: formData.grade,
           symptoms: formData.symptoms,
           treatment: formData.treatment,
+          bloodPressure: formData.bloodPressure?.trim() || undefined,
           notes: formData.notes,
           notifyParent: formData.notifyParent,
           needsPickup: formData.needsPickup,
           loggedBy: userEmail,
-          parentEmail: parentEmail || undefined,
-          parentName: parentName || undefined,
-          parentPhone: parentPhone || undefined,
+          parentEmail: finalParentEmail || undefined,
+          parentName: finalParentName || undefined,
+          parentPhone: finalParentPhone || undefined,
           pickupRequired: formData.needsPickup,
           nurseEmail: userEmail,
           nurseName: nurseName,
@@ -420,13 +494,14 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
         grade: formData.grade,
         symptoms: formData.symptoms,
         treatment: formData.treatment,
+        bloodPressure: formData.bloodPressure?.trim() || undefined,
         notes: formData.notes,
         notifyParent: formData.notifyParent,
         needsPickup: formData.needsPickup,
         loggedBy: userEmail,
-        parentEmail: parentEmail || undefined,
-        parentName: parentName || undefined,
-        parentPhone: parentPhone || undefined,
+        parentEmail: finalParentEmail || undefined,
+        parentName: finalParentName || undefined,
+        parentPhone: finalParentPhone || undefined,
         pickupRequired: formData.needsPickup,
         nurseEmail: userEmail,
         nurseName: nurseName,
@@ -477,6 +552,7 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
           grade: formData.grade,
           symptoms: formData.symptoms,
           treatment: formData.treatment,
+          bloodPressure: formData.bloodPressure?.trim() || undefined,
           notes: formData.notes,
           nurseName: nurseName,
           timestamp: new Date(),
@@ -621,8 +697,9 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      setFormData({ ...formData, studentId: '', studentName: '', grade: '' });
+                      setFormData({ ...formData, studentId: '', studentName: '', grade: '', bloodPressure: '' });
                       setStudentSearch('');
+                      setSelectedStudentBloodPressure('');
                       setSelectedStudentAllergies([]);
                       setSelectedStudentMedicalConditions([]);
                       setSelectedStudentImmunizations([]);
@@ -670,6 +747,11 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                           {selectedStudentWeight && <span>Weight: <strong>{selectedStudentWeight} kg</strong></span>}
                           {selectedStudentAge && <span>Age: <strong>{selectedStudentAge} yrs</strong></span>}
                           {selectedStudentSex && <span>Sex: <strong>{selectedStudentSex}</strong></span>}
+                          {selectedStudentBloodPressure && (
+                            <span className="inline-flex items-center gap-1 font-medium text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                              BP: <strong>{selectedStudentBloodPressure}</strong>
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -773,6 +855,28 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
               value={formData.treatment}
               onChange={(e) => setFormData({ ...formData, treatment: e.target.value })}
               required
+              className="h-12 border-slate-200 bg-white shadow-sm focus:border-ndkc-green focus:ring-2 focus:ring-ndkc-green/20"
+            />
+          </div>
+
+          {/* Blood Pressure (Optional) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="bloodPressure" className="text-slate-700 flex items-center gap-1.5">
+                <Activity className="h-4 w-4 text-rose-500" />
+                Blood Pressure <span className="text-xs text-slate-400 font-normal">(Optional)</span>
+              </Label>
+              {selectedStudentBloodPressure && (
+                <span className="text-xs text-slate-500">
+                  Profile Record: <strong className="text-slate-700">{selectedStudentBloodPressure}</strong>
+                </span>
+              )}
+            </div>
+            <Input
+              id="bloodPressure"
+              placeholder="e.g., 120/80 mmHg"
+              value={formData.bloodPressure}
+              onChange={(e) => setFormData({ ...formData, bloodPressure: e.target.value })}
               className="h-12 border-slate-200 bg-white shadow-sm focus:border-ndkc-green focus:ring-2 focus:ring-ndkc-green/20"
             />
           </div>
@@ -1029,20 +1133,98 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
             </AnimatePresence>
           </div>
 
-          {/* Notify Parent Toggle */}
-          <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-emerald-50/30 p-5">
-            <div>
-              <Label htmlFor="notify" className="text-slate-900">
-                Notify Parent Immediately
-              </Label>
-              <p className="mt-1 text-sm text-slate-600">Send email and SMS notification to parent</p>
+          {/* Notify Parent Toggle and Contact Details */}
+          <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-emerald-50/30 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="notify" className="text-slate-900 font-semibold cursor-pointer">
+                  Notify Parent Immediately
+                </Label>
+                <p className="mt-1 text-sm text-slate-600">Send automatic email and SMS alerts to the student's guardian</p>
+              </div>
+              <Switch
+                id="notify"
+                checked={formData.notifyParent}
+                onCheckedChange={(checked) => setFormData({ ...formData, notifyParent: checked })}
+                className="data-[state=checked]:bg-ndkc-green"
+              />
             </div>
-            <Switch
-              id="notify"
-              checked={formData.notifyParent}
-              onCheckedChange={(checked) => setFormData({ ...formData, notifyParent: checked })}
-              className="data-[state=checked]:bg-ndkc-green"
-            />
+
+            <AnimatePresence>
+              {formData.notifyParent && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="space-y-3 pt-3 border-t border-slate-200/80 overflow-hidden"
+                >
+                  {isParentLinked ? (
+                    <div className="flex items-center gap-2 text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg p-2.5">
+                      <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+                      <span>
+                        Parent account linked: <strong>{parentName || 'Parent'}</strong>. Contact details pre-filled below:
+                      </span>
+                    </div>
+                  ) : formData.studentId ? (
+                    <div className="flex items-center gap-2 text-xs font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                      <span>
+                        No parent account linked to this student. Enter contact details below to send notifications:
+                      </span>
+                    </div>
+                  ) : null}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1 sm:col-span-1">
+                      <Label className="text-xs text-slate-600">Parent / Guardian Name</Label>
+                      <Input
+                        placeholder="e.g., Maria Santos"
+                        value={parentName}
+                        onChange={(e) => setParentName(e.target.value)}
+                        className="h-10 text-sm bg-white border-slate-200"
+                      />
+                    </div>
+                    <div className="space-y-1 sm:col-span-1">
+                      <Label className="text-xs text-slate-600 flex items-center gap-1">
+                        <Mail className="h-3.5 w-3.5 text-purple-600" />
+                        Parent Email (EmailJS)
+                      </Label>
+                      <Input
+                        type="email"
+                        placeholder="e.g., parent@gmail.com"
+                        value={parentEmail}
+                        onChange={(e) => setParentEmail(e.target.value)}
+                        className="h-10 text-sm bg-white border-slate-200"
+                      />
+                    </div>
+                    <div className="space-y-1 sm:col-span-1">
+                      <Label className="text-xs text-slate-600 flex items-center gap-1">
+                        <Phone className="h-3.5 w-3.5 text-emerald-600" />
+                        Parent Mobile (SMS)
+                      </Label>
+                      <Input
+                        type="tel"
+                        placeholder="e.g., 09516495356"
+                        value={parentPhone}
+                        onChange={(e) => setParentPhone(e.target.value)}
+                        className="h-10 text-sm bg-white border-slate-200"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 pt-1">
+                    <span className="flex items-center gap-1">
+                      <span className={`inline-block w-2 h-2 rounded-full ${parentEmail.includes('@') ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                      Email Alert: {parentEmail.includes('@') ? <strong className="text-emerald-700">Ready</strong> : 'No email entered'}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <span className={`inline-block w-2 h-2 rounded-full ${parentPhone.replace(/[^0-9]/g, '').length >= 10 ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                      SMS Alert: {parentPhone.replace(/[^0-9]/g, '').length >= 10 ? <strong className="text-emerald-700">Ready</strong> : 'No phone entered'}
+                    </span>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Needs Pickup Checkbox */}

@@ -13,6 +13,7 @@ interface Visit {
   studentName: string;
   symptoms: string;
   treatment: string;
+  bloodPressure?: string;
   timestamp: any;
   nurseEmail: string;
   nurseName?: string;
@@ -283,6 +284,16 @@ export function StudentDashboard({ userEmail }: StudentDashboardProps) {
                             </p>
                             <p className="text-sm text-slate-700">{visit.treatment}</p>
                           </div>
+
+                          {visit.bloodPressure && (
+                            <div className="p-3 rounded-lg bg-rose-50 border border-rose-100">
+                              <p className="text-xs font-semibold text-rose-700 mb-1 flex items-center gap-1">
+                                <Activity className="h-3 w-3" />
+                                Blood Pressure
+                              </p>
+                              <p className="text-sm font-semibold text-slate-800">{visit.bloodPressure}</p>
+                            </div>
+                          )}
                         </div>
 
                         {visit.notes && (
@@ -343,6 +354,7 @@ export function StudentDashboard({ userEmail }: StudentDashboardProps) {
             grade: selectedVisit.grade,
             symptoms: selectedVisit.symptoms,
             treatment: selectedVisit.treatment,
+            bloodPressure: selectedVisit.bloodPressure,
             notes: selectedVisit.notes,
             nurseName: selectedVisit.nurseName || selectedVisit.nurseEmail,
             timestamp: selectedVisit.timestamp?.toDate

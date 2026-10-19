@@ -3,7 +3,7 @@ import { User } from "firebase/auth";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "./lib/firebase";
-import { initializeFirestore } from "./lib/firestore-setup";
+import { initializeFirestore, initializeFMCSMS } from "./lib/firestore-setup";
 import { initializeEmailJS } from "./lib/emailjs-init";
 import "./lib/offline-sync"; // Initialize offline sync service
 import { ThemeProvider } from "./components/ThemeProvider";
@@ -50,6 +50,14 @@ export default function App() {
       );
     });
 
+    // Initialize FMCSMS SMS configuration
+    initializeFMCSMS().catch((err) => {
+      console.warn(
+        "FMCSMS initialization error (non-critical):",
+        err,
+      );
+    });
+
     // Listen for auth state changes
     const unsubscribe = onAuthStateChanged(
       auth,
@@ -90,6 +98,12 @@ export default function App() {
         const userData = userDoc.data();
         setUserRole(userData.role || "nurse");
         setStudentIds(userData.studentIds || []);
+
+        // If admin, ensure email and sms settings are seeded in Firestore
+        if (userData.role === "admin") {
+          initializeEmailJS().catch(() => {});
+          initializeFMCSMS().catch(() => {});
+        }
 
         // Set initial view based on role
         if (userData.role === "admin") {

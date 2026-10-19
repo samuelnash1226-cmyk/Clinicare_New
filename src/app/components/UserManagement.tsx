@@ -44,6 +44,7 @@ interface Student {
   age?: number;
   sex?: string;
   bmi?: number;
+  bloodPressure?: string;
 }
 
 const computeBMI = (height: string, weight: string): number | null => {
@@ -92,7 +93,8 @@ export function UserManagement() {
     height: '',
     weight: '',
     age: '',
-    sex: ''
+    sex: '',
+    bloodPressure: ''
   });
 
   useEffect(() => {
@@ -182,6 +184,7 @@ export function UserManagement() {
           weight: formData.weight ? parseFloat(formData.weight) : null,
           age: formData.age ? parseInt(formData.age) : null,
           sex: formData.sex || '',
+          bloodPressure: formData.bloodPressure?.trim() || null,
           bmi: computeBMI(formData.height, formData.weight)
         });
       } else if (selectedRole === 'parent') {
@@ -340,6 +343,7 @@ export function UserManagement() {
     weight?: string;
     age?: string;
     sex?: string;
+    bloodPressure?: string;
   }) => {
     if (!editingUser) return;
 
@@ -375,6 +379,7 @@ export function UserManagement() {
             weight: updatedData.weight ? parseFloat(updatedData.weight) : null,
             age: updatedData.age ? parseInt(updatedData.age) : null,
             sex: updatedData.sex || '',
+            bloodPressure: updatedData.bloodPressure?.trim() || null,
             bmi: computeBMI(updatedData.height || '', updatedData.weight || '')
           });
         });
@@ -408,6 +413,7 @@ export function UserManagement() {
     let studentWeight = '';
     let studentAge = '';
     let studentSex = '';
+    let studentBloodPressure = '';
 
     if (user.role === 'student' || user.role === 'personnel') {
       const studentsSnapshot = await getDocs(
@@ -422,6 +428,7 @@ export function UserManagement() {
         studentWeight = studentData.weight ? String(studentData.weight) : '';
         studentAge = studentData.age ? String(studentData.age) : '';
         studentSex = studentData.sex || '';
+        studentBloodPressure = studentData.bloodPressure || '';
       }
     }
 
@@ -445,7 +452,8 @@ export function UserManagement() {
       height: studentHeight,
       weight: studentWeight,
       age: studentAge,
-      sex: studentSex
+      sex: studentSex,
+      bloodPressure: studentBloodPressure
     });
     setIsEditDialogOpen(true);
   };
@@ -470,7 +478,8 @@ export function UserManagement() {
       height: '',
       weight: '',
       age: '',
-      sex: ''
+      sex: '',
+      bloodPressure: ''
     });
     setStudentSearchTerm('');
   };
@@ -736,6 +745,17 @@ export function UserManagement() {
                           <option value="Male">Male</option>
                           <option value="Female">Female</option>
                         </select>
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <label className="text-xs text-slate-600 flex items-center gap-1">
+                          Blood Pressure <span className="text-slate-400 font-normal">(Optional)</span>
+                        </label>
+                        <Input
+                          type="text"
+                          value={formData.bloodPressure}
+                          onChange={(e) => setFormData({ ...formData, bloodPressure: e.target.value })}
+                          placeholder="e.g., 120/80 mmHg"
+                        />
                       </div>
                     </div>
                     {computeBMI(formData.height, formData.weight) !== null && (() => {
@@ -1241,6 +1261,17 @@ export function UserManagement() {
                             <option value="Female">Female</option>
                           </select>
                         </div>
+                        <div className="space-y-1 sm:col-span-2">
+                          <label className="text-xs text-slate-600 flex items-center gap-1">
+                            Blood Pressure <span className="text-slate-400 font-normal">(Optional)</span>
+                          </label>
+                          <Input
+                            type="text"
+                            value={formData.bloodPressure}
+                            onChange={(e) => setFormData({ ...formData, bloodPressure: e.target.value })}
+                            placeholder="e.g., 120/80 mmHg"
+                          />
+                        </div>
                       </div>
                       {computeBMI(formData.height, formData.weight) !== null && (() => {
                         const bmi = computeBMI(formData.height, formData.weight)!;
@@ -1613,7 +1644,8 @@ export function UserManagement() {
                       height: formData.height,
                       weight: formData.weight,
                       age: formData.age,
-                      sex: formData.sex
+                      sex: formData.sex,
+                      bloodPressure: formData.bloodPressure
                     })}
                     className="flex-1 bg-gradient-to-r from-ndkc-green to-emerald-600"
                   >

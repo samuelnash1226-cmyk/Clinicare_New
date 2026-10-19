@@ -24,6 +24,7 @@ interface Visit {
   grade: string;
   symptoms: string;
   treatment: string;
+  bloodPressure?: string;
   notes?: string;
   nurseName: string;
   pickupRequired: boolean;
@@ -562,8 +563,13 @@ export function VisitHistory() {
                           <TableCell className="text-sm text-slate-700 max-w-xs truncate" title={visit.symptoms}>
                             {visit.symptoms}
                           </TableCell>
-                          <TableCell className="text-sm text-slate-700 max-w-xs truncate" title={visit.treatment}>
-                            {visit.treatment}
+                          <TableCell className="text-sm text-slate-700 max-w-xs" title={visit.treatment}>
+                            <div>{visit.treatment}</div>
+                            {visit.bloodPressure && (
+                              <div className="inline-flex items-center gap-1 text-xs text-rose-600 font-medium bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5 mt-1">
+                                BP: {visit.bloodPressure}
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell className="text-sm text-slate-600 max-w-xs truncate" title={visit.notes || 'None'}>
                             {visit.notes || <span className="text-slate-400 italic">No notes</span>}
@@ -742,6 +748,7 @@ export function VisitHistory() {
             grade: selectedVisit.grade,
             symptoms: selectedVisit.symptoms,
             treatment: selectedVisit.treatment,
+            bloodPressure: selectedVisit.bloodPressure,
             notes: selectedVisit.notes,
             nurseName: selectedVisit.nurseName,
             timestamp: selectedVisit.timestamp?.toDate
