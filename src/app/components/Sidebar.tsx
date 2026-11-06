@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, Settings, Activity, LogOut, User, ChevronRight, Users, GraduationCap, ChevronsLeft, ChevronsRight, Calendar, Package, IdCard, Syringe, BedDouble } from 'lucide-react';
+import { LayoutDashboard, FileText, Settings, Activity, LogOut, User, ChevronRight, Users, GraduationCap, ChevronsLeft, ChevronsRight, Calendar, Package, IdCard, Syringe, BedDouble, DatabaseBackup } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -53,6 +53,7 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
       { id: 'beds', label: 'Bed Management', icon: BedDouble, description: 'IBED, SHS & College Beds' },
       { id: 'inventory', label: 'Inventory', icon: Package, description: 'Medicines & Equipment' },
       { id: 'history', label: 'Visit History', icon: Calendar, description: 'All Past Visits' },
+      { id: 'backup', label: 'Backup & Restore', icon: DatabaseBackup, description: 'Local Storage & Cloud' },
       { id: 'settings', label: 'Settings', icon: Settings, description: 'System Config' },
     ]
     : userRole === 'parent'

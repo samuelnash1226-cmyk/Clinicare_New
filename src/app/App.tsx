@@ -22,6 +22,7 @@ import { SettingsPage } from "./components/SettingsPage";
 import { VisitHistory } from "./components/VisitHistory";
 import { InventoryDashboard } from "./components/InventoryDashboard";
 import { BedManagement } from "./components/BedManagement";
+import { LocalBackupManager } from "./components/LocalBackupManager";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { Toaster } from "./components/ui/sonner";
 import { Loader2, Heart } from "lucide-react";
@@ -316,6 +317,11 @@ export default function App() {
               (userRole === "admin" ||
                 userRole === "nurse") && (
                 <BedManagement />
+              )}
+
+            {currentView === "backup" &&
+              userRole === "admin" && (
+                <LocalBackupManager />
               )}
 
             {currentView === "parent" &&
