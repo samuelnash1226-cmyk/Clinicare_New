@@ -50,10 +50,10 @@ export default function App() {
       );
     });
 
-    // Initialize FMCSMS SMS configuration
+    // Initialize PhilSMS configuration
     initializeFMCSMS().catch((err) => {
       console.warn(
-        "FMCSMS initialization error (non-critical):",
+        "PhilSMS initialization error (non-critical):",
         err,
       );
     });

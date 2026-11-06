@@ -5,6 +5,7 @@ import { LogIn, Loader2, Heart, Shield, Activity, Settings, Sparkles, CheckCircl
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { Captcha } from './Captcha';
 import { toast } from 'sonner';
 import srbLogo from "/assets/4a75b62a01df7e8cfb0ca5e95cb4075dd831b41b.png";
 import campusImage from '../imports/image-1.png';
@@ -18,9 +19,25 @@ export function LoginPage({ onLogin, onFirstTimeSetup }: LoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [captchaValue, setCaptchaValue] = useState('');
+  const [isCaptchaValid, setIsCaptchaValid] = useState(false);
+  const [captchaRefreshTrigger, setCaptchaRefreshTrigger] = useState(0);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!captchaValue.trim()) {
+      toast.error('Please complete the security verification code');
+      return;
+    }
+
+    if (!isCaptchaValid) {
+      toast.error('Incorrect security code. A new code has been generated.');
+      setCaptchaValue('');
+      setCaptchaRefreshTrigger((prev) => prev + 1);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -30,6 +47,9 @@ export function LoginPage({ onLogin, onFirstTimeSetup }: LoginPageProps) {
     } catch (error: any) {
       console.error('Login error:', error);
       toast.error(error.message || 'Invalid email or password');
+      // Regenerate captcha on failed login to prevent credential stuffing / brute force
+      setCaptchaValue('');
+      setCaptchaRefreshTrigger((prev) => prev + 1);
     } finally {
       setLoading(false);
     }
@@ -100,6 +120,14 @@ export function LoginPage({ onLogin, onFirstTimeSetup }: LoginPageProps) {
                 />
               </div>
             </div>
+
+            {/* Human Verification CAPTCHA */}
+            <Captcha
+              value={captchaValue}
+              onChange={setCaptchaValue}
+              onValidationChange={setIsCaptchaValid}
+              refreshTrigger={captchaRefreshTrigger}
+            />
 
             <Button
               type="submit"

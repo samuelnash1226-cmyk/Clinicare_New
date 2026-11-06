@@ -509,10 +509,13 @@ export const DEFAULT_EMAILJS_CONFIG = {
   templateId: 'template_sk6tt9j'
 };
 
-export const DEFAULT_FMCSMS_CONFIG = {
-  apiKey: 'fmcsms_c3a64b0e69a5419146f8a92257bdf178a88df25695e719bd',
-  senderName: 'NDKC ClinicCare'
+export const DEFAULT_PHILSMS_CONFIG = {
+  apiKey: '2673|hSdMIVBzdXRXdKFpognsu6Q3th4zqk515t2knTYc6b83cc45',
+  senderName: 'PhilSMS'
 };
+
+// Backwards compatibility alias
+export const DEFAULT_FMCSMS_CONFIG = DEFAULT_PHILSMS_CONFIG;
 
 export async function sendParentNotification(data: {
   parentEmail: string;
@@ -650,7 +653,7 @@ export async function getEmailSettings() {
 }
 
 // ===========================
-// SMS NOTIFICATIONS (FMCSMS)
+// SMS NOTIFICATIONS (PhilSMS)
 // ===========================
 
 export async function sendParentSMS(data: {
@@ -665,7 +668,7 @@ export async function sendParentSMS(data: {
   nurseName: string;
   notes?: string;
 }) {
-  console.log('📱 sendParentSMS called');
+  console.log('📱 sendParentSMS called (PhilSMS)');
   console.log('📱 Target phone:', data.parentPhone);
 
   if (!data.parentPhone || !data.parentPhone.trim()) {
@@ -673,27 +676,33 @@ export async function sendParentSMS(data: {
   }
 
   try {
-    let apiKey = DEFAULT_FMCSMS_CONFIG.apiKey;
-    let senderName = DEFAULT_FMCSMS_CONFIG.senderName;
+    let apiKey = DEFAULT_PHILSMS_CONFIG.apiKey;
+    let senderName = DEFAULT_PHILSMS_CONFIG.senderName;
 
-    // Get FMCSMS credentials from settings if available
+    // Get PhilSMS credentials from settings if available
     try {
-      console.log('🔍 Checking for FMCSMS settings...');
-      const settingsRef = doc(db, 'settings', 'fmcsms');
-      const settingsDoc = await getDoc(settingsRef);
+      console.log('🔍 Checking for SMS settings in Firestore...');
+      for (const col of ['philsms', 'sms', 'fmcsms']) {
+        const settingsRef = doc(db, 'settings', col);
+        const settingsDoc = await getDoc(settingsRef);
 
-      if (settingsDoc.exists()) {
-        const smsSettings = settingsDoc.data();
-        if (smsSettings.apiKey) apiKey = smsSettings.apiKey;
-        if (smsSettings.senderName) senderName = smsSettings.senderName;
+        if (settingsDoc.exists()) {
+          const smsSettings = settingsDoc.data();
+          if (smsSettings.apiKey) {
+            apiKey = smsSettings.apiKey;
+            if (smsSettings.senderName) senderName = smsSettings.senderName;
+            break;
+          }
+        }
       }
     } catch (readErr) {
-      console.warn('⚠️ Could not read settings/fmcsms from Firestore, using default config:', readErr);
+      console.warn('⚠️ Could not read settings/sms from Firestore, using default config:', readErr);
     }
 
-    console.log('✅ Using FMCSMS credentials (Sender:', senderName, ')');
+    const validSenderId = (senderName || 'PhilSMS').trim().substring(0, 11);
+    console.log('✅ Using PhilSMS credentials (Sender ID:', validSenderId, ')');
 
-    // Format phone number to international format (+639XXXXXXXXX)
+    // Format phone number to PhilSMS format (639XXXXXXXXX - 12 digits, no '+')
     let phone = data.parentPhone.replace(/[\s\-\(\)\+]/g, '');
     if (phone.startsWith('0')) {
       phone = '63' + phone.substring(1);
@@ -705,8 +714,7 @@ export async function sendParentSMS(data: {
       throw new Error(`Invalid mobile number format: "${data.parentPhone}". Expected 11 digits (e.g., 09516495356).`);
     }
 
-    const formattedPhone = '+' + phone;
-    console.log('📱 Formatted phone:', data.parentPhone, '→', formattedPhone);
+    console.log('📱 Formatted phone for PhilSMS:', data.parentPhone, '→', phone);
 
     // Format SMS message - must be under 160 characters
     const pickupStatus = data.pickupRequired ? 'YES' : 'NO';
@@ -735,22 +743,23 @@ export async function sendParentSMS(data: {
       }
     }
 
-    console.log('📋 SMS message:', message);
-    console.log('📋 SMS length:', message.length, 'characters');
+    console.log('📋 PhilSMS message:', message);
+    console.log('📋 PhilSMS length:', message.length, 'characters');
 
-    // Send SMS via FMCSMS API
-    const response = await fetch('https://fortmed.org/web/FMCSMS/api/messages.php', {
+    // Send SMS via PhilSMS API
+    const response = await fetch('https://dashboard.philsms.com/api/v3/sms/send', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json, text/plain, */*',
-        'X-API-Key': apiKey,
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${apiKey.trim()}`,
       },
       body: JSON.stringify({
-        SenderName: senderName,
-        ToNumber: formattedPhone,
-        MessageBody: message,
-        FromNumber: '+639189876543',
+        recipient: phone,
+        sender_id: validSenderId,
+        type: 'plain',
+        sms_type: 'plain',
+        message: message,
       }),
     });
 
@@ -762,69 +771,91 @@ export async function sendParentSMS(data: {
       result = { message: responseText };
     }
 
-    console.log('📱 FMCSMS Response:', result);
+    console.log('📱 PhilSMS Response:', result);
 
-    if (!response.ok || (result && result.success === false)) {
-      throw new Error(`FMCSMS API Error: ${result.error || result.message || response.statusText || response.status}`);
+    if (!response.ok || result?.status === 'error' || result?.success === false) {
+      const errMsg = result?.message || result?.error || (typeof result?.errors === 'object' ? JSON.stringify(result.errors) : null) || response.statusText || response.status;
+      throw new Error(`PhilSMS API Error: ${errMsg}`);
     }
 
-    console.log('✅ ✅ ✅ SMS sent successfully via FMCSMS!');
+    console.log('✅ ✅ ✅ SMS sent successfully via PhilSMS!');
     return result;
   } catch (error: any) {
-    console.error('❌ Error in sendParentSMS:', error);
+    console.error('❌ Error in sendParentSMS (PhilSMS):', error);
     throw error;
   }
 }
 
 export async function updateSMSSettings(apiKey: string, senderName: string) {
   try {
-    const settingsRef = doc(db, 'settings', 'fmcsms');
-    await setDoc(settingsRef, {
-      apiKey,
-      senderName,
+    const dataToSave = {
+      apiKey: apiKey.trim(),
+      senderName: (senderName.trim() || 'PhilSMS').substring(0, 11),
+      provider: 'philsms',
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    };
 
-    console.log('FMCSMS settings updated successfully');
+    const philsmsRef = doc(db, 'settings', 'philsms');
+    await setDoc(philsmsRef, dataToSave, { merge: true });
+
+    const smsRef = doc(db, 'settings', 'sms');
+    await setDoc(smsRef, dataToSave, { merge: true });
+
+    const fmcsmsRef = doc(db, 'settings', 'fmcsms');
+    await setDoc(fmcsmsRef, dataToSave, { merge: true });
+
+    console.log('PhilSMS settings updated successfully in Firestore');
   } catch (error) {
-    console.error('Error updating FMCSMS settings:', error);
+    console.error('Error updating PhilSMS settings:', error);
     throw error;
   }
 }
 
 export async function getSMSSettings() {
   try {
-    const settingsRef = doc(db, 'settings', 'fmcsms');
-    const settingsDoc = await getDoc(settingsRef);
+    for (const col of ['philsms', 'sms', 'fmcsms']) {
+      const settingsRef = doc(db, 'settings', col);
+      const settingsDoc = await getDoc(settingsRef);
 
-    if (settingsDoc.exists()) {
-      return settingsDoc.data();
+      if (settingsDoc.exists()) {
+        const data = settingsDoc.data();
+        if (data.apiKey) {
+          return {
+            apiKey: data.apiKey,
+            senderName: data.senderName || 'PhilSMS',
+            provider: data.provider || 'philsms'
+          };
+        }
+      }
     }
 
-    return DEFAULT_FMCSMS_CONFIG;
+    return DEFAULT_PHILSMS_CONFIG;
   } catch (error) {
-    console.error('Error getting FMCSMS settings:', error);
-    return DEFAULT_FMCSMS_CONFIG;
+    console.error('Error getting PhilSMS settings:', error);
+    return DEFAULT_PHILSMS_CONFIG;
   }
 }
 
-// Initialize FMCSMS with your API key
-export async function initializeFMCSMS() {
+// Initialize PhilSMS with default API token
+export async function initializeSMS() {
   try {
-    console.log('🚀 Initializing FMCSMS settings...');
+    console.log('🚀 Initializing PhilSMS settings...');
 
     await updateSMSSettings(
-      DEFAULT_FMCSMS_CONFIG.apiKey,
-      DEFAULT_FMCSMS_CONFIG.senderName
+      DEFAULT_PHILSMS_CONFIG.apiKey,
+      DEFAULT_PHILSMS_CONFIG.senderName
     );
 
-    console.log('✅ ✅ ✅ FMCSMS initialized successfully!');
+    console.log('✅ ✅ ✅ PhilSMS initialized successfully!');
     return true;
   } catch (error) {
-    console.warn('⚠️ Non-critical notice: Failed to save FMCSMS settings to Firestore (will use built-in configuration):', error);
+    console.warn('⚠️ Non-critical notice: Failed to save PhilSMS settings to Firestore (will use built-in configuration):', error);
     return false;
   }
 }
+
+// Backwards compatibility alias
+export const initializeFMCSMS = initializeSMS;
 
 // ===========================
 // INVENTORY MANAGEMENT

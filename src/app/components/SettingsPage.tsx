@@ -130,16 +130,16 @@ export function SettingsPage({ userEmail, userRole }: SettingsPageProps) {
 
   const handleSaveSmsSettings = async () => {
     if (!smsApiKey || !smsSenderName) {
-      toast.error('API Key and Sender Name are required');
+      toast.error('PhilSMS API Token and Sender ID are required');
       return;
     }
 
     setSavingSms(true);
     try {
       await updateSMSSettings(smsApiKey.trim(), smsSenderName.trim());
-      toast.success('FMCSMS SMS settings updated successfully!');
+      toast.success('PhilSMS settings updated successfully!');
     } catch (error: any) {
-      toast.error(`Failed to update FMCSMS settings: ${error.message}`);
+      toast.error(`Failed to update PhilSMS settings: ${error.message}`);
     } finally {
       setSavingSms(false);
     }
@@ -164,7 +164,7 @@ export function SettingsPage({ userEmail, userRole }: SettingsPageProps) {
         visitDate: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         nurseName: 'ClinicCare',
       });
-      toast.success(`✅ Test SMS queued and sent successfully to ${testPhoneNumber}!`);
+      toast.success(`✅ Test SMS sent successfully to ${testPhoneNumber} via PhilSMS!`);
     } catch (error: any) {
       console.error('Test SMS error:', error);
       toast.error(`❌ Test SMS failed: ${error.message || 'Unknown error'}`);
@@ -346,7 +346,7 @@ export function SettingsPage({ userEmail, userRole }: SettingsPageProps) {
           </CardContent>
         </Card>
 
-        {/* SMS (FMCSMS) CONFIGURATION */}
+        {/* SMS (PhilSMS) CONFIGURATION */}
         <Card className="border-slate-200 bg-white shadow-sm overflow-hidden">
           <CardHeader className="border-b border-slate-100 bg-slate-50/50">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -355,9 +355,9 @@ export function SettingsPage({ userEmail, userRole }: SettingsPageProps) {
                   <Smartphone className="h-5 w-5" />
                 </div>
                 <div>
-                  <CardTitle className="text-base text-slate-900">SMS Notifications (FMCSMS)</CardTitle>
+                  <CardTitle className="text-base text-slate-900">SMS Notifications (PhilSMS)</CardTitle>
                   <CardDescription className="text-xs">
-                    Direct SMS messages delivered to parents' mobile phones (+63 format)
+                    Direct SMS messages delivered to parents' mobile phones via PhilSMS (dashboard.philsms.com)
                   </CardDescription>
                 </div>
               </div>
@@ -370,22 +370,22 @@ export function SettingsPage({ userEmail, userRole }: SettingsPageProps) {
           <CardContent className="pt-6 space-y-6">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">FMCSMS API Key</Label>
+                <Label className="text-xs font-semibold text-slate-700">PhilSMS API Token</Label>
                 <Input
                   value={smsApiKey}
                   onChange={(e) => setSmsApiKey(e.target.value)}
-                  placeholder="e.g. fmcsms_c3a64b..."
+                  placeholder="e.g. 2673|hSdMIVBzd..."
                   disabled={!isAdmin || loadingSettings}
                   className="font-mono text-sm bg-white"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">Sender Name</Label>
+                <Label className="text-xs font-semibold text-slate-700">Sender ID (Max 11 chars)</Label>
                 <Input
                   value={smsSenderName}
                   onChange={(e) => setSmsSenderName(e.target.value)}
-                  placeholder="e.g. NDKC ClinicCare"
+                  placeholder="e.g. PhilSMS or approved custom ID"
                   disabled={!isAdmin || loadingSettings}
                   className="text-sm bg-white"
                 />
@@ -408,7 +408,7 @@ export function SettingsPage({ userEmail, userRole }: SettingsPageProps) {
                   ) : (
                     <>
                       <Save className="h-4 w-4 mr-2" />
-                      Save FMCSMS Settings
+                      Save PhilSMS Settings
                     </>
                   )}
                 </Button>
@@ -419,7 +419,7 @@ export function SettingsPage({ userEmail, userRole }: SettingsPageProps) {
             <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200/80 space-y-3">
               <p className="text-xs font-semibold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
                 <Phone className="h-3.5 w-3.5" />
-                Live SMS Diagnostic Test
+                Live PhilSMS Diagnostic Test
               </p>
               <div className="flex flex-col sm:flex-row gap-2">
                 <Input
