@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { Users, Activity, TrendingUp, Download, BarChart3, BookOpen, GraduationCap, Building2, Layers, Filter } from 'lucide-react';
+import { Users, Activity, TrendingUp, Download, BarChart3, BookOpen, GraduationCap, Building2, Layers, Filter, FileSpreadsheet } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -58,6 +58,7 @@ export function AdminDashboard() {
   const [activeBranch, setActiveBranch] = useState<BranchFilter>('ALL');
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingCsv, setDownloadingCsv] = useState(false);
 
   const symptomChartRef = useRef<HTMLDivElement>(null);
   const gradeChartRef = useRef<HTMLDivElement>(null);
@@ -349,6 +350,127 @@ export function AdminDashboard() {
     }
   };
 
+  // CSV Backup Export — downloads two CSV files: Clinic Visits & Students
+  const handleDownloadCSV = async () => {
+    setDownloadingCsv(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const branchLabel = activeBranch === 'ALL' ? 'AllDepts' : activeBranch;
+
+      // Helper: escape a single CSV field
+      const esc = (val: any): string => {
+        const s = String(val ?? '');
+        return s.includes(',') || s.includes('"') || s.includes('\n')
+          ? `"${s.replace(/"/g, '""')}"`
+          : s;
+      };
+
+      // Helper: trigger a file download in the browser
+      const triggerDownload = (content: string, filename: string) => {
+        const blob = new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      };
+
+      // --- 1. Clinic Visits CSV ---
+      const visitsToExport = activeBranch === 'ALL' ? allVisits : filteredVisits;
+
+      const visitHeaders = [
+        'Date & Time', 'Student Name', 'Student ID', 'Grade / Department',
+        'Symptoms', 'Treatment', 'Nurse Name', 'Nurse Email',
+        'Pickup Required', 'Needs Bed Rest', 'Status',
+        'Blood Pressure', 'Temperature', 'Heart Rate',
+        'Bed Name', 'Bed Start Time', 'Bed End Time',
+        'Parent Name', 'Parent Email', 'Parent Phone',
+        'Notes', 'Record ID'
+      ];
+
+      const visitRows = visitsToExport.map(v => {
+        const dateStr = v.timestamp?.toDate
+          ? v.timestamp.toDate().toLocaleString('en-PH')
+          : v.createdAt?.toDate
+          ? v.createdAt.toDate().toLocaleString('en-PH')
+          : '';
+        const bedStart = v.bedStartTime?.toDate ? v.bedStartTime.toDate().toLocaleString('en-PH') : '';
+        const bedEnd   = v.bedEndTime?.toDate   ? v.bedEndTime.toDate().toLocaleString('en-PH')   : '';
+        return [
+          dateStr,
+          v.studentName       ?? '',
+          v.studentId         ?? '',
+          v.grade             ?? '',
+          v.symptoms          ?? '',
+          v.treatment         ?? '',
+          v.nurseName         ?? '',
+          v.nurseEmail        ?? '',
+          v.pickupRequired    ? 'Yes' : 'No',
+          v.needsBedRest      ? 'Yes' : 'No',
+          v.status            ?? '',
+          v.bloodPressure     ?? '',
+          v.temperature       ?? '',
+          v.heartRate         ?? '',
+          v.bedName           ?? '',
+          bedStart,
+          bedEnd,
+          v.parentName        ?? '',
+          v.parentEmail       ?? '',
+          v.parentPhone       ?? '',
+          v.notes             ?? '',
+          v.id                ?? '',
+        ];
+      });
+
+      const visitsCsv = [visitHeaders, ...visitRows]
+        .map(row => row.map(esc).join(','))
+        .join('\r\n');
+
+      triggerDownload(visitsCsv, `NDKC_ClinicVisits_${branchLabel}_${today}.csv`);
+
+      // --- 2. Students CSV ---
+      const studentsToExport = activeBranch === 'ALL' ? allStudents : filteredStudents;
+
+      const studentHeaders = [
+        'Student Name', 'Student ID', 'Grade / Department',
+        'Email', 'Parent Name', 'Parent Email', 'Parent Phone',
+        'Record ID'
+      ];
+
+      const studentRows = studentsToExport.map(s => [
+        s.name         ?? s.studentName ?? '',
+        s.studentId    ?? s.id          ?? '',
+        s.grade        ?? '',
+        s.email        ?? '',
+        s.parentName   ?? '',
+        s.parentEmail  ?? '',
+        s.parentPhone  ?? '',
+        s.id           ?? '',
+      ]);
+
+      const studentsCsv = [studentHeaders, ...studentRows]
+        .map(row => row.map(esc).join(','))
+        .join('\r\n');
+
+      // Slight delay so both downloads don't collide in the browser
+      setTimeout(() => {
+        triggerDownload(studentsCsv, `NDKC_Students_${branchLabel}_${today}.csv`);
+      }, 600);
+
+      toast.success(
+        `CSV backup downloaded! ${visitsToExport.length} visit records & ${studentsToExport.length} student records exported.`
+      );
+    } catch (error: any) {
+      console.error('CSV export error:', error);
+      toast.error(`CSV export failed: ${error.message}`);
+    } finally {
+      setDownloadingCsv(false);
+    }
+  };
+
   return (
     <div className="space-y-8 animate-fadeIn">
       {/* Header */}
@@ -364,23 +486,46 @@ export function AdminDashboard() {
             Real-time symptoms and clinic visit trends partitioned by department
           </p>
         </div>
-        <Button
-          onClick={handleDownloadReport}
-          disabled={downloading || loading}
-          className="h-11 px-5 bg-gradient-to-r from-ndkc-green to-emerald-600 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40 disabled:opacity-50"
-        >
-          {downloading ? (
-            <>
-              <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <Download className="mr-2 h-4 w-4" />
-              Export Report
-            </>
-          )}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {/* CSV Backup Download */}
+          <Button
+            onClick={handleDownloadCSV}
+            disabled={downloadingCsv || loading}
+            variant="outline"
+            className="h-11 px-5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-400 disabled:opacity-50"
+          >
+            {downloadingCsv ? (
+              <>
+                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
+                Exporting CSV...
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                Download CSV Backup
+              </>
+            )}
+          </Button>
+
+          {/* PDF Report Export */}
+          <Button
+            onClick={handleDownloadReport}
+            disabled={downloading || loading}
+            className="h-11 px-5 bg-gradient-to-r from-ndkc-green to-emerald-600 shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40 disabled:opacity-50"
+          >
+            {downloading ? (
+              <>
+                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Download className="mr-2 h-4 w-4" />
+                Export Report
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Branch / Department Partition Tabs */}
