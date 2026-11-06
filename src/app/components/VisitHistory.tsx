@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
-import { collection, getDocs, query, orderBy, where, limit, startAfter, Timestamp, doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, where, limit, startAfter, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Calendar as CalendarComponent } from './ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
-import { Search, Calendar, User, Stethoscope, AlertCircle, Check, Filter, X, ChevronLeft, ChevronRight, CalendarRange, Loader2, FileText, BedDouble, Clock, BookOpen, GraduationCap, Building2, Layers, CalendarClock, Pencil, Sparkles } from 'lucide-react';
+import { Search, Calendar, User, Stethoscope, AlertCircle, Check, Filter, X, ChevronLeft, ChevronRight, CalendarRange, Loader2, FileText, BedDouble, Clock, BookOpen, GraduationCap, Building2, Layers } from 'lucide-react';
 import { formatBedRestDuration, getBranchFromGrade, BedBranch, isFirestoreDocId } from '../lib/firestore-setup';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -62,13 +62,6 @@ export function VisitHistory() {
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [showCertificate, setShowCertificate] = useState(false);
   const [showVisitDetail, setShowVisitDetail] = useState(false);
-
-  // Edit Visit Date & Time (for presentation / demo manipulation)
-  const [editingVisit, setEditingVisit] = useState<Visit | null>(null);
-  const [showEditDateTimeModal, setShowEditDateTimeModal] = useState(false);
-  const [editDate, setEditDate] = useState('');
-  const [editTime, setEditTime] = useState('');
-  const [savingDateTime, setSavingDateTime] = useState(false);
 
   const itemsPerPage = 25;
 
@@ -230,85 +223,6 @@ export function VisitHistory() {
       }).format(date);
     } catch (error) {
       return 'Invalid date';
-    }
-  };
-
-  const handleOpenEditDateTime = (visit: Visit) => {
-    setEditingVisit(visit);
-    const ts = visit.timestamp?.toDate
-      ? visit.timestamp.toDate()
-      : new Date(visit.timestamp || visit.createdAt || Date.now());
-
-    const yyyy = ts.getFullYear();
-    const mm = String(ts.getMonth() + 1).padStart(2, '0');
-    const dd = String(ts.getDate()).padStart(2, '0');
-    setEditDate(`${yyyy}-${mm}-${dd}`);
-
-    const hours = String(ts.getHours()).padStart(2, '0');
-    const minutes = String(ts.getMinutes()).padStart(2, '0');
-    setEditTime(`${hours}:${minutes}`);
-
-    setShowEditDateTimeModal(true);
-  };
-
-  const handleApplyPresetDays = (daysOffset: number) => {
-    const d = new Date();
-    d.setDate(d.getDate() + daysOffset);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    setEditDate(`${yyyy}-${mm}-${dd}`);
-  };
-
-  const handleApplyCurrentTime = () => {
-    const now = new Date();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    setEditTime(`${hours}:${minutes}`);
-  };
-
-  const handleSaveDateTime = async () => {
-    if (!editingVisit || !editDate || !editTime) {
-      toast.error('Please enter both date and time');
-      return;
-    }
-
-    const targetDate = new Date(`${editDate}T${editTime}`);
-    if (isNaN(targetDate.getTime())) {
-      toast.error('Invalid date or time entered');
-      return;
-    }
-
-    setSavingDateTime(true);
-    try {
-      const newTimestamp = Timestamp.fromDate(targetDate);
-      const visitDocRef = doc(db, 'clinicVisits', editingVisit.id);
-
-      const updatePayload: any = {
-        timestamp: newTimestamp,
-        createdAt: newTimestamp,
-        updatedAt: serverTimestamp(),
-      };
-
-      if (editingVisit.needsBedRest && editingVisit.bedStartTime) {
-        updatePayload.bedStartTime = newTimestamp;
-      }
-
-      await updateDoc(visitDocRef, updatePayload);
-
-      // Update in local state
-      setVisits(prev =>
-        prev.map(v => (v.id === editingVisit.id ? { ...v, timestamp: newTimestamp, createdAt: newTimestamp } : v))
-      );
-
-      toast.success(`Visit date & time updated to ${format(targetDate, 'PPP')} at ${format(targetDate, 'p')}`);
-      setShowEditDateTimeModal(false);
-      setEditingVisit(null);
-    } catch (error: any) {
-      console.error('Error updating visit date:', error);
-      toast.error(`Failed to update visit: ${error.message}`);
-    } finally {
-      setSavingDateTime(false);
     }
   };
 
@@ -598,7 +512,7 @@ export function VisitHistory() {
                       <TableHead>Notes</TableHead>
                       <TableHead>Nurse</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right pr-6">Actions</TableHead>
+                      <TableHead>Certificate</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -625,18 +539,12 @@ export function VisitHistory() {
                       visits.map(visit => (
                         <TableRow key={visit.id} className="hover:bg-slate-50">
                           <TableCell>
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditDateTime(visit)}
-                              className="flex items-center gap-2 cursor-pointer group hover:text-emerald-700 transition-colors py-1 text-left rounded-md px-1 -mx-1"
-                              title="Click to edit date & time"
-                            >
-                              <Calendar className="h-4 w-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
-                              <span className="text-sm font-medium text-slate-900 group-hover:text-emerald-700 group-hover:underline">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-4 w-4 text-slate-400" />
+                              <span className="text-sm font-medium text-slate-900">
                                 {formatDate(visit.timestamp || visit.createdAt)}
                               </span>
-                              <Pencil className="h-3 w-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                            </button>
+                            </div>
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -693,20 +601,8 @@ export function VisitHistory() {
                               )}
                             </div>
                           </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {/* Edit Date & Time */}
-                              <Button
-                                onClick={() => handleOpenEditDateTime(visit)}
-                                variant="ghost"
-                                size="sm"
-                                className="text-amber-600 hover:bg-amber-50 hover:text-amber-700 h-8 px-2 text-xs"
-                                title="Change Date & Time"
-                              >
-                                <CalendarClock className="h-3.5 w-3.5 mr-1" />
-                                Date
-                              </Button>
-
+                          <TableCell>
+                            <div className="flex gap-1">
                               {visit.needsBedRest && (
                                 <Button
                                   onClick={() => {
@@ -715,7 +611,7 @@ export function VisitHistory() {
                                   }}
                                   variant="ghost"
                                   size="sm"
-                                  className="text-sky-600 hover:bg-sky-50 hover:text-sky-700 h-8 px-2"
+                                  className="text-sky-600 hover:bg-sky-50 hover:text-sky-700"
                                   title="View bed rest details"
                                 >
                                   <BedDouble className="h-4 w-4" />
@@ -728,9 +624,9 @@ export function VisitHistory() {
                                 }}
                                 variant="ghost"
                                 size="sm"
-                                className="text-ndkc-green hover:bg-ndkc-green/10 hover:text-ndkc-green h-8 px-2.5 text-xs"
+                                className="text-ndkc-green hover:bg-ndkc-green/10 hover:text-ndkc-green"
                               >
-                                <FileText className="h-3.5 w-3.5 mr-1" />
+                                <FileText className="h-4 w-4 mr-1" />
                                 View
                               </Button>
                             </div>
@@ -945,179 +841,6 @@ export function VisitHistory() {
               </Button>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Visit Date & Time Modal (for Presentations / Demo Manipulation) */}
-      <Dialog open={showEditDateTimeModal} onOpenChange={(open) => {
-        if (!open) {
-          setShowEditDateTimeModal(false);
-          setEditingVisit(null);
-        }
-      }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-slate-900">
-              <CalendarClock className="h-5 w-5 text-amber-600" />
-              Change Visit Date & Time
-            </DialogTitle>
-            <DialogDescription className="text-xs text-slate-500">
-              Modify the visit record timestamp. Ideal for preparing demo data and presentation timelines.
-            </DialogDescription>
-          </DialogHeader>
-
-          {editingVisit && (
-            <div className="space-y-4 py-2">
-              {/* Visit Summary Card */}
-              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <User className="h-4 w-4 text-emerald-600" />
-                    <span className="font-semibold text-slate-900 text-sm">{editingVisit.studentName}</span>
-                    <Badge variant="outline" className="text-xs">{editingVisit.grade}</Badge>
-                  </div>
-                  <span className="text-[11px] font-mono text-slate-400">ID: {editingVisit.id.substring(0, 8)}...</span>
-                </div>
-                <div className="text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
-                  <span><strong>Symptoms:</strong> {editingVisit.symptoms}</span>
-                  <span><strong>Nurse:</strong> {editingVisit.nurseName}</span>
-                </div>
-                <div className="text-xs text-slate-500 pt-1 border-t border-slate-200/60">
-                  <span>Currently logged at: <strong>{formatDate(editingVisit.timestamp || editingVisit.createdAt)}</strong></span>
-                </div>
-              </div>
-
-              {/* Date Input */}
-              <div className="space-y-2">
-                <Label htmlFor="edit-visit-date" className="text-xs font-semibold uppercase tracking-wider text-slate-700 flex items-center justify-between">
-                  <span>Visit Date</span>
-                  <span className="text-[11px] text-slate-400 font-normal">YYYY-MM-DD</span>
-                </Label>
-                <Input
-                  id="edit-visit-date"
-                  type="date"
-                  value={editDate}
-                  onChange={(e) => setEditDate(e.target.value)}
-                  className="bg-white text-sm"
-                />
-
-                {/* Quick Date Presets for Presentation */}
-                <div className="space-y-1 pt-1">
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                    Quick Presentation Presets:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { label: 'Today', days: 0 },
-                      { label: 'Yesterday', days: -1 },
-                      { label: '2 Days Ago', days: -2 },
-                      { label: '3 Days Ago', days: -3 },
-                      { label: '1 Week Ago', days: -7 },
-                      { label: '2 Weeks Ago', days: -14 },
-                      { label: '1 Month Ago', days: -30 },
-                    ].map((preset) => (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => handleApplyPresetDays(preset.days)}
-                        className="text-[11px] font-medium bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 px-2.5 py-1 rounded-md border border-slate-200 transition-colors"
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Time Input */}
-              <div className="space-y-2">
-                <Label htmlFor="edit-visit-time" className="text-xs font-semibold uppercase tracking-wider text-slate-700 flex items-center justify-between">
-                  <span>Visit Time</span>
-                  <button
-                    type="button"
-                    onClick={handleApplyCurrentTime}
-                    className="text-[11px] text-emerald-600 hover:underline font-semibold"
-                  >
-                    Set Current Time
-                  </button>
-                </Label>
-                <Input
-                  id="edit-visit-time"
-                  type="time"
-                  value={editTime}
-                  onChange={(e) => setEditTime(e.target.value)}
-                  className="bg-white text-sm"
-                />
-
-                {/* Quick Time Presets */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {[
-                    { label: '08:15 AM (Morning)', time: '08:15' },
-                    { label: '10:30 AM (Recess)', time: '10:30' },
-                    { label: '01:15 PM (Afternoon)', time: '13:15' },
-                    { label: '03:45 PM (Dismissal)', time: '15:45' },
-                  ].map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => setEditTime(preset.time)}
-                      className="text-[11px] font-medium bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 px-2.5 py-1 rounded-md border border-slate-200 transition-colors"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Live Preview */}
-              {editDate && editTime && !isNaN(new Date(`${editDate}T${editTime}`).getTime()) && (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 space-y-1">
-                  <div className="flex items-center justify-between text-xs font-semibold text-emerald-800">
-                    <span className="flex items-center gap-1">
-                      <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
-                      Updated Date & Time Preview:
-                    </span>
-                    <Badge className="bg-emerald-600 text-white text-[10px]">Ready to Save</Badge>
-                  </div>
-                  <p className="text-sm font-bold text-slate-900">
-                    {format(new Date(`${editDate}T${editTime}`), 'EEEE, MMMM d, yyyy')} at {format(new Date(`${editDate}T${editTime}`), 'hh:mm a')}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t border-slate-100">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setShowEditDateTimeModal(false);
-                setEditingVisit(null);
-              }}
-              disabled={savingDateTime}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={handleSaveDateTime}
-              disabled={savingDateTime || !editDate || !editTime}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              {savingDateTime ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Check className="h-4 w-4 mr-2" />
-                  Save New Date & Time
-                </>
-              )}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
