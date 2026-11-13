@@ -32,6 +32,8 @@ import {
   ChevronUp,
   RotateCcw,
   SlidersHorizontal,
+  Building2,
+  GraduationCap,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -42,6 +44,8 @@ interface Personnel {
   name: string;
   grade: string; // always 'Personnel'
   email: string;
+  personnelType?: 'teaching' | 'non-teaching' | string;
+  departmentBranch?: 'IBED' | 'SHS' | 'College' | string;
   allergies?: string[];
   medicalConditions?: string[];
   immunizations?: string[];
@@ -57,6 +61,8 @@ interface Personnel {
 interface EditFormData {
   name: string;
   studentId: string;
+  personnelType: string;
+  departmentBranch: string;
   height: string;
   weight: string;
   age: string;
@@ -94,6 +100,8 @@ interface PersonnelCardProps {
 export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'teaching' | 'non-teaching'>('all');
+  const [branchFilter, setBranchFilter] = useState<'all' | 'IBED' | 'SHS' | 'College'>('all');
   const [healthFilter, setHealthFilter] = useState<'all' | 'allergies' | 'conditions' | 'healthy'>('all');
   const [bmiFilter, setBmiFilter] = useState<'all' | 'underweight' | 'normal' | 'overweight' | 'obese'>('all');
   const [bpFilter, setBpFilter] = useState<'all' | 'recorded' | 'elevated' | 'none'>('all');
@@ -104,6 +112,8 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
   const [editingPersonnel, setEditingPersonnel] = useState<Personnel | null>(null);
   const [editForm, setEditForm] = useState<EditFormData>({
     name: '', studentId: '',
+    personnelType: 'teaching',
+    departmentBranch: 'College',
     height: '', weight: '', age: '', sex: '',
     allergies: [], hasNoAllergies: false, currentAllergy: '',
     medicalConditions: [], hasNoMedicalConditions: false, currentMedicalCondition: '',
@@ -144,6 +154,8 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
     setEditForm({
       name: p.name,
       studentId: p.studentId,
+      personnelType: p.personnelType || 'teaching',
+      departmentBranch: p.departmentBranch || 'College',
       height: p.height ? String(p.height) : '',
       weight: p.weight ? String(p.weight) : '',
       age: p.age ? String(p.age) : '',
@@ -174,6 +186,8 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
         name: editForm.name.trim(),
         grade: 'Personnel',
         studentId: editForm.studentId.trim(),
+        personnelType: editForm.personnelType,
+        departmentBranch: editForm.departmentBranch,
         height: editForm.height ? parseFloat(editForm.height) : null,
         weight: editForm.weight ? parseFloat(editForm.weight) : null,
         age: editForm.age ? parseInt(editForm.age) : null,
@@ -190,7 +204,9 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
         await updateDoc(doc(db, 'users', userDoc.id), {
           name: editForm.name.trim(),
           grade: 'Personnel',
-          studentId: editForm.studentId.trim()
+          studentId: editForm.studentId.trim(),
+          personnelType: editForm.personnelType,
+          departmentBranch: editForm.departmentBranch,
         });
       });
 
@@ -209,6 +225,8 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
   const hasActiveFilters = () => {
     return (
       searchTerm !== '' ||
+      typeFilter !== 'all' ||
+      branchFilter !== 'all' ||
       healthFilter !== 'all' ||
       bmiFilter !== 'all' ||
       bpFilter !== 'all'
@@ -217,14 +235,18 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
+    if (typeFilter !== 'all') count++;
+    if (branchFilter !== 'all') count++;
     if (healthFilter !== 'all') count++;
     if (bmiFilter !== 'all') count++;
     if (bpFilter !== 'all') count++;
     return count;
-  }, [healthFilter, bmiFilter, bpFilter]);
+  }, [typeFilter, branchFilter, healthFilter, bmiFilter, bpFilter]);
 
   const resetFilters = () => {
     setSearchTerm('');
+    setTypeFilter('all');
+    setBranchFilter('all');
     setHealthFilter('all');
     setBmiFilter('all');
     setBpFilter('all');
@@ -232,6 +254,18 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
 
   const filteredPersonnel = useMemo(() => {
     return personnel.filter(p => {
+      // Type filter (Teaching / Non-Teaching)
+      if (typeFilter !== 'all') {
+        const pType = (p.personnelType || 'teaching').toLowerCase();
+        if (pType !== typeFilter.toLowerCase()) return false;
+      }
+
+      // Department Branch filter (IBED / SHS / College)
+      if (branchFilter !== 'all') {
+        const pBranch = (p.departmentBranch || 'College').toUpperCase();
+        if (pBranch !== branchFilter.toUpperCase()) return false;
+      }
+
       // Health profile filter
       if (healthFilter === 'allergies') {
         if (!p.allergies || p.allergies.length === 0) return false;
@@ -382,6 +416,46 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4 pt-0">
+                {/* Category & Branch Filters */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-2 border-b border-emerald-100">
+                  {/* Teaching vs Non-Teaching Filter */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Briefcase className="h-3.5 w-3.5 text-rose-600" />
+                      Personnel Classification
+                    </Label>
+                    <Select value={typeFilter} onValueChange={(v: any) => setTypeFilter(v)}>
+                      <SelectTrigger className="bg-white h-10 border-slate-200">
+                        <SelectValue placeholder="All Classifications" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Classifications (Teaching & Non-Teaching)</SelectItem>
+                        <SelectItem value="teaching">Teaching Personnel (Faculty / Teachers)</SelectItem>
+                        <SelectItem value="non-teaching">Non-Teaching Personnel (Staff / Admin)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Branch Department Filter */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                      <Building2 className="h-3.5 w-3.5 text-emerald-600" />
+                      Department / Campus Branch
+                    </Label>
+                    <Select value={branchFilter} onValueChange={(v: any) => setBranchFilter(v)}>
+                      <SelectTrigger className="bg-white h-10 border-slate-200">
+                        <SelectValue placeholder="All Departments" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Departments (IBED, SHS, College)</SelectItem>
+                        <SelectItem value="IBED">IBED (Integrated Basic Education)</SelectItem>
+                        <SelectItem value="SHS">SHS (Senior High School)</SelectItem>
+                        <SelectItem value="College">College / Higher Education</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   {/* Health Profile Filter */}
                   <div className="space-y-1.5">
@@ -500,7 +574,19 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
                       </div>
                       <div>
                         <CardTitle className="text-lg text-slate-900">{p.name}</CardTitle>
-                        <p className="text-sm text-slate-500 mt-0.5">EMP ID: {p.studentId}</p>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          <span className="text-xs text-slate-500 font-mono">EMP: {p.studentId}</span>
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium ${
+                            (p.personnelType || 'teaching') === 'teaching'
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}>
+                            {(p.personnelType || 'teaching') === 'teaching' ? 'Teaching' : 'Non-Teaching'}
+                          </Badge>
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 font-medium">
+                            {p.departmentBranch || 'College'}
+                          </Badge>
+                        </div>
                       </div>
                     </div>
                     {(userRole === 'admin' || userRole === 'nurse') && (
@@ -634,10 +720,35 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-2">
                   <Label>Employee ID</Label>
                   <Input value={editForm.studentId} onChange={(e) => setEditForm({ ...editForm, studentId: e.target.value })} placeholder="e.g., EMP-202401" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Classification</Label>
+                  <Select value={editForm.personnelType} onValueChange={(val) => setEditForm({ ...editForm, personnelType: val })}>
+                    <SelectTrigger className="h-10 bg-white">
+                      <SelectValue placeholder="Select classification" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="teaching">Teaching Personnel</SelectItem>
+                      <SelectItem value="non-teaching">Non-Teaching Personnel</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Campus Branch</Label>
+                  <Select value={editForm.departmentBranch} onValueChange={(val) => setEditForm({ ...editForm, departmentBranch: val })}>
+                    <SelectTrigger className="h-10 bg-white">
+                      <SelectValue placeholder="Select department" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="IBED">IBED</SelectItem>
+                      <SelectItem value="SHS">SHS</SelectItem>
+                      <SelectItem value="College">College</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 

@@ -65,8 +65,8 @@ export function DoctorsField() {
   const [uploadProgress, setUploadProgress] = useState(false);
 
   // Form Fields
-  const [doctorName, setDoctorName] = useState('Dr. Maria Santos, MD');
-  const [licenseNumber, setLicenseNumber] = useState('PRC #0145892');
+  const [doctorName, setDoctorName] = useState('Dr. Flora Mae Z. Jacobo');
+  const [licenseNumber, setLicenseNumber] = useState('PRC #87721');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [parentEmailInput, setParentEmailInput] = useState('');
   const [parentPhoneInput, setParentPhoneInput] = useState('');
@@ -676,7 +676,7 @@ export function DoctorsField() {
                     required
                     value={doctorName}
                     onChange={(e) => setDoctorName(e.target.value)}
-                    placeholder="e.g. Dr. Maria Santos, MD"
+                    placeholder="e.g. Dr. Flora Mae Z. Jacobo"
                     className="mt-1 h-9 text-sm bg-white border-slate-200"
                   />
                 </div>
@@ -686,7 +686,7 @@ export function DoctorsField() {
                     type="text"
                     value={licenseNumber}
                     onChange={(e) => setLicenseNumber(e.target.value)}
-                    placeholder="e.g. PRC #0145892"
+                    placeholder="e.g. PRC #87721"
                     className="mt-1 h-9 text-sm bg-white border-slate-200"
                   />
                 </div>

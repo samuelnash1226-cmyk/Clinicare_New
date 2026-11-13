@@ -27,6 +27,8 @@ interface UserData {
   grade?: string;
   studentId?: string;
   phone?: string;
+  personnelType?: 'teaching' | 'non-teaching' | string;
+  departmentBranch?: 'IBED' | 'SHS' | 'College' | string;
   createdAt: any;
 }
 
@@ -81,6 +83,8 @@ export function UserManagement() {
     grade: '',
     studentId: '',
     phone: '',
+    personnelType: 'teaching' as 'teaching' | 'non-teaching',
+    departmentBranch: 'College' as 'IBED' | 'SHS' | 'College',
     selectedStudents: [] as string[],
     allergies: [] as string[],
     hasNoAllergies: false,
@@ -168,6 +172,10 @@ export function UserManagement() {
         }
         userData.grade = selectedRole === 'personnel' ? 'Personnel' : formData.grade;
         userData.studentId = formData.studentId;
+        if (selectedRole === 'personnel') {
+          userData.personnelType = formData.personnelType;
+          userData.departmentBranch = formData.departmentBranch;
+        }
 
         // Also create student record
         await addDoc(collection(db, 'students'), {
@@ -176,6 +184,8 @@ export function UserManagement() {
           grade: userData.grade,
           email: formData.email,
           parentEmail: '',
+          personnelType: selectedRole === 'personnel' ? formData.personnelType : null,
+          departmentBranch: selectedRole === 'personnel' ? formData.departmentBranch : null,
           createdAt: new Date(),
           allergies: formData.allergies,
           medicalConditions: formData.medicalConditions,
@@ -334,6 +344,8 @@ export function UserManagement() {
     name: string;
     grade?: string;
     studentId?: string;
+    personnelType?: string;
+    departmentBranch?: string;
     selectedStudents?: string[];
     phone?: string;
     allergies?: string[];
@@ -355,6 +367,10 @@ export function UserManagement() {
       if (editingUser.role === 'student' || editingUser.role === 'personnel') {
         updatePayload.grade = editingUser.role === 'personnel' ? 'Personnel' : updatedData.grade;
         updatePayload.studentId = updatedData.studentId;
+        if (editingUser.role === 'personnel') {
+          updatePayload.personnelType = updatedData.personnelType || 'teaching';
+          updatePayload.departmentBranch = updatedData.departmentBranch || 'College';
+        }
       } else if (editingUser.role === 'parent') {
         updatePayload.studentIds = updatedData.selectedStudents || [];
         updatePayload.phone = updatedData.phone || '';
@@ -372,6 +388,8 @@ export function UserManagement() {
             name: updatedData.name,
             grade: editingUser.role === 'personnel' ? 'Personnel' : updatedData.grade,
             studentId: updatedData.studentId,
+            personnelType: editingUser.role === 'personnel' ? (updatedData.personnelType || 'teaching') : null,
+            departmentBranch: editingUser.role === 'personnel' ? (updatedData.departmentBranch || 'College') : null,
             allergies: updatedData.allergies || [],
             medicalConditions: updatedData.medicalConditions || [],
             immunizations: updatedData.immunizations || [],
@@ -440,6 +458,8 @@ export function UserManagement() {
       grade: user.grade || '',
       studentId: user.studentId || '',
       phone: user.phone || '',
+      personnelType: (user.personnelType as any) || 'teaching',
+      departmentBranch: (user.departmentBranch as any) || 'College',
       selectedStudents: user.studentIds || [],
       allergies: studentAllergies,
       hasNoAllergies: studentAllergies.length === 0,
@@ -466,6 +486,8 @@ export function UserManagement() {
       grade: '',
       studentId: '',
       phone: '',
+      personnelType: 'teaching',
+      departmentBranch: 'College',
       selectedStudents: [],
       allergies: [],
       hasNoAllergies: false,
@@ -692,13 +714,53 @@ export function UserManagement() {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        <Label>Role Designation</Label>
-                        <div className="flex h-10 w-full items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-600">
-                          Personnel
+                        <Label>Classification & Campus</Label>
+                        <div className="flex h-10 w-full items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-rose-700">
+                          School Personnel
                         </div>
                       </div>
                     )}
                   </div>
+
+                  {/* Personnel Specific: Teaching/Non-Teaching and Department Branch */}
+                  {selectedRole === 'personnel' && (
+                    <div className="grid gap-4 sm:grid-cols-2 p-3.5 bg-rose-50/50 rounded-xl border border-rose-200">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold text-slate-800">Personnel Classification *</Label>
+                        <Select
+                          value={formData.personnelType}
+                          onValueChange={(val: any) => setFormData({ ...formData, personnelType: val })}
+                        >
+                          <SelectTrigger className="h-10 bg-white border-slate-200">
+                            <SelectValue placeholder="Select classification" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="teaching">Teaching Personnel (Faculty / Teachers)</SelectItem>
+                            <SelectItem value="non-teaching">Non-Teaching Personnel (Staff / Admin)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-slate-500">Academic faculty or administrative staff.</p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold text-slate-800">Department / Branch *</Label>
+                        <Select
+                          value={formData.departmentBranch}
+                          onValueChange={(val: any) => setFormData({ ...formData, departmentBranch: val })}
+                        >
+                          <SelectTrigger className="h-10 bg-white border-slate-200">
+                            <SelectValue placeholder="Select department" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="IBED">IBED (Integrated Basic Education)</SelectItem>
+                            <SelectItem value="SHS">SHS (Senior High School)</SelectItem>
+                            <SelectItem value="College">College / Higher Education</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-slate-500">Campus branch where employee is assigned.</p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* BMI Section */}
                   <div className="space-y-3">
@@ -1208,12 +1270,50 @@ export function UserManagement() {
                       ) : (
                         <div className="space-y-2">
                           <Label>Role Designation</Label>
-                          <div className="flex h-10 w-full items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-600">
-                            Personnel
+                          <div className="flex h-10 w-full items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-rose-700">
+                            School Personnel
                           </div>
                         </div>
                       )}
                     </div>
+
+                    {/* Personnel Specific Edit: Classification & Department Branch */}
+                    {editingUser.role === 'personnel' && (
+                      <div className="grid gap-4 sm:grid-cols-2 p-3 bg-rose-50/50 rounded-xl border border-rose-200">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-semibold text-slate-800">Personnel Classification</Label>
+                          <Select
+                            value={formData.personnelType}
+                            onValueChange={(val: any) => setFormData({ ...formData, personnelType: val })}
+                          >
+                            <SelectTrigger className="h-10 bg-white">
+                              <SelectValue placeholder="Select classification" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="teaching">Teaching Personnel</SelectItem>
+                              <SelectItem value="non-teaching">Non-Teaching Personnel</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-semibold text-slate-800">Department Branch</Label>
+                          <Select
+                            value={formData.departmentBranch}
+                            onValueChange={(val: any) => setFormData({ ...formData, departmentBranch: val })}
+                          >
+                            <SelectTrigger className="h-10 bg-white">
+                              <SelectValue placeholder="Select department" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="IBED">IBED</SelectItem>
+                              <SelectItem value="SHS">SHS</SelectItem>
+                              <SelectItem value="College">College</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
 
                     {/* BMI Section */}
                     <div className="space-y-3">

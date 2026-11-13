@@ -146,8 +146,8 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
   const [isRxModalOpen, setIsRxModalOpen] = useState(false);
   const [selectedRxStudent, setSelectedRxStudent] = useState<Student | null>(null);
   const [isIssuingRx, setIsIssuingRx] = useState(false);
-  const [rxDoctorName, setRxDoctorName] = useState('Dr. Maria Santos, MD');
-  const [rxLicenseNumber, setRxLicenseNumber] = useState('PRC #0145892');
+  const [rxDoctorName, setRxDoctorName] = useState('Dr. Flora Mae Z. Jacobo');
+  const [rxLicenseNumber, setRxLicenseNumber] = useState('PRC #87721');
   const [rxDiagnosis, setRxDiagnosis] = useState('');
   const [rxMedications, setRxMedications] = useState('');
   const [rxInstructions, setRxInstructions] = useState('');
@@ -1211,7 +1211,7 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                         required
                         value={rxDoctorName}
                         onChange={(e) => setRxDoctorName(e.target.value)}
-                        placeholder="Dr. Maria Santos, MD"
+                        placeholder="Dr. Flora Mae Z. Jacobo"
                         className="mt-1 h-9 text-xs bg-white"
                       />
                     </div>
@@ -1220,7 +1220,7 @@ export function StudentCard({ userRole, userEmail, studentIds = [] }: StudentCar
                       <Input
                         value={rxLicenseNumber}
                         onChange={(e) => setRxLicenseNumber(e.target.value)}
-                        placeholder="PRC #0145892"
+                        placeholder="PRC #87721"
                         className="mt-1 h-9 text-xs bg-white"
                       />
                     </div>

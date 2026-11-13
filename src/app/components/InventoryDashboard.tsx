@@ -44,6 +44,7 @@ import {
   SelectValue,
 } from './ui/select';
 import { motion, AnimatePresence } from 'motion/react';
+import { PHILIPPINE_MEDICINE_BRANDS } from '../lib/philippine-medicines';
 
 interface InventoryTransaction {
   id: string;
@@ -1006,15 +1007,52 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
 
                 {formData.category === 'medicine' && (
                   <div className="space-y-2">
-                    <Label htmlFor="brand">Brand Name</Label>
-                    <Input
-                      id="brand"
-                      placeholder="e.g., Biogesic, Neozep, Advil"
-                      value={formData.brand}
-                      onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
-                      className="h-12"
-                    />
-                    <p className="text-xs text-slate-500">Optional. The commercial brand name of the medicine.</p>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="brand">Brand Name (Philippine FDA Registered)</Label>
+                      <span className="text-[11px] text-emerald-600 font-medium">Select from PH brands or type custom</span>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      {/* Searchable / Quick Dropdown */}
+                      <Select
+                        value={formData.brand || ''}
+                        onValueChange={(brandVal) => {
+                          const matched = PHILIPPINE_MEDICINE_BRANDS.find(m => m.brand === brandVal);
+                          setFormData(prev => ({
+                            ...prev,
+                            brand: brandVal,
+                            // Auto-fill generic / formula name if empty or default
+                            name: prev.name.trim() === '' && matched ? matched.genericName : prev.name
+                          }));
+                        }}
+                      >
+                        <SelectTrigger className="h-11 bg-white border-slate-200">
+                          <SelectValue placeholder="— Choose from Popular PH Brands —" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {PHILIPPINE_MEDICINE_BRANDS.map((item, idx) => (
+                            <SelectItem key={`${item.brand}-${idx}`} value={item.brand}>
+                              <div className="flex items-center justify-between gap-3 text-left">
+                                <span className="font-semibold text-slate-900">{item.brand}</span>
+                                <span className="text-xs text-slate-500">({item.genericName})</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+
+                      {/* Custom brand input fallback */}
+                      <div className="relative">
+                        <Input
+                          id="brand"
+                          placeholder="Or type custom brand name (e.g., Biogesic, Neozep, Advil)..."
+                          value={formData.brand}
+                          onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
+                          className="h-10 text-xs bg-slate-50/50 border-slate-200"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-500">Commercial trade/brand name commonly dispensed in the Philippines.</p>
                   </div>
                 )}
 
