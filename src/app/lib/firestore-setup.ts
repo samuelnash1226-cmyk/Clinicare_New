@@ -864,6 +864,8 @@ export const initializeFMCSMS = initializeSMS;
 export interface InventoryItem {
   id?: string;
   name: string;
+  brand?: string; // Brand name (e.g., 'Biogesic', 'Neozep', 'Advil')
+  genericName?: string; // Generic formula (e.g., 'Paracetamol 500mg')
   category: 'medicine' | 'equipment' | 'consumables' | 'medical supplies';
   branch: 'IBED' | 'SHS' | 'College';
   stockQuantity: number;
@@ -871,6 +873,7 @@ export interface InventoryItem {
   expirationDate?: Date | null; // for medicines
   status: 'in_stock' | 'low_stock' | 'out_of_stock';
   minStockLevel: number; // threshold for low stock alert
+  lastUsed?: any; // Last used / dispensed timestamp
   createdAt: any;
   updatedAt: any;
   createdBy?: string;
@@ -886,6 +889,7 @@ export interface InventoryItem {
 export interface MedicineDispensed {
   medicineId: string;
   medicineName: string;
+  brand?: string;
   quantityGiven: number;
   unit: string;
   stockBefore: number;
@@ -941,7 +945,13 @@ export async function updateInventoryItem(itemId: string, updates: Partial<Inven
 export async function dispenseMedicine(
   medicineId: string,
   quantityDispensed: number,
-  dispensedBy: string
+  dispensedBy: string,
+  patientInfo?: {
+    studentId?: string;
+    studentName?: string;
+    grade?: string;
+    visitId?: string;
+  }
 ): Promise<MedicineDispensed> {
   try {
     const medicineRef = doc(db, 'inventory', medicineId);
@@ -963,26 +973,38 @@ export async function dispenseMedicine(
     await updateDoc(medicineRef, {
       stockQuantity: stockAfter,
       status: determineStockStatus(stockAfter, medicineData.minStockLevel),
+      lastUsed: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
 
-    // Log dispensing activity
+    // Log dispensing activity with brand, generic, patient info, and exact timestamp
     await addDoc(collection(db, 'inventoryTransactions'), {
       itemId: medicineId,
       itemName: medicineData.name,
+      brand: medicineData.brand || '',
+      genericName: medicineData.genericName || medicineData.name || '',
       type: 'dispensed',
       quantityChanged: -quantityDispensed,
+      quantityDispensed,
+      unit: medicineData.unit || 'tablets',
       stockBefore,
       stockAfter,
       dispensedBy,
+      patientName: patientInfo?.studentName || 'Student',
+      studentId: patientInfo?.studentId || '',
+      grade: patientInfo?.grade || '',
+      visitId: patientInfo?.visitId || '',
       timestamp: serverTimestamp(),
+      createdAt: serverTimestamp(),
     });
 
-    console.log(`✅ Medicine dispensed: ${medicineData.name} (${quantityDispensed} ${medicineData.unit})`);
+    const brandDisplay = medicineData.brand ? `${medicineData.brand} (${medicineData.name})` : medicineData.name;
+    console.log(`✅ Medicine dispensed: ${brandDisplay} (${quantityDispensed} ${medicineData.unit}) to ${patientInfo?.studentName || 'patient'}`);
 
     return {
       medicineId,
       medicineName: medicineData.name,
+      brand: medicineData.brand || '',
       quantityGiven: quantityDispensed,
       unit: medicineData.unit,
       stockBefore,
@@ -1036,6 +1058,7 @@ export async function borrowEquipment(
       stockQuantity: stockAfter,
       status: determineStockStatus(stockAfter, itemData.minStockLevel || 0),
       borrowedBy: [...currentBorrows, newBorrow],
+      lastUsed: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
 
@@ -1170,6 +1193,340 @@ export async function getInventoryStats() {
     };
   } catch (error) {
     console.error('❌ Error getting inventory stats:', error);
+    throw error;
+  }
+}
+
+// ==========================================
+// DOCTOR'S PRESCRIPTIONS MANAGEMENT
+// ==========================================
+
+export interface Prescription {
+  id: string;
+  studentId: string;
+  studentDocId?: string;
+  studentName: string;
+  grade: string;
+  doctorName: string;
+  licenseNumber?: string;
+  diagnosis: string;
+  medications: string;
+  instructions: string;
+  fileUrl?: string;
+  fileName?: string;
+  fileType?: string;
+  fileSize?: number;
+  notifyParent: boolean;
+  parentEmail?: string;
+  parentName?: string;
+  parentPhone?: string;
+  notificationStatus: 'sent' | 'pending' | 'failed' | 'not_requested';
+  smsStatus?: 'sent' | 'pending' | 'failed' | 'not_requested';
+  issuedAt: any;
+  createdAt: any;
+  createdBy: string;
+}
+
+/**
+ * Add a new doctor prescription record to Firestore
+ */
+export async function addPrescription(
+  data: Omit<Prescription, 'id' | 'createdAt'>
+): Promise<string> {
+  try {
+    const prescriptionsRef = collection(db, 'prescriptions');
+
+    // Firestore throws an error if any field is undefined.
+    // Clean all undefined values to null or omit them.
+    const cleanData: Record<string, any> = {
+      studentId: data.studentId || '',
+      studentDocId: data.studentDocId || null,
+      studentName: data.studentName || '',
+      grade: data.grade || '',
+      doctorName: data.doctorName || '',
+      licenseNumber: data.licenseNumber || null,
+      diagnosis: data.diagnosis || '',
+      medications: data.medications || '',
+      instructions: data.instructions || '',
+      fileUrl: data.fileUrl || null,
+      fileName: data.fileName || null,
+      fileType: data.fileType || null,
+      fileSize: data.fileSize || null,
+      notifyParent: Boolean(data.notifyParent),
+      parentEmail: data.parentEmail || null,
+      parentName: data.parentName || null,
+      parentPhone: data.parentPhone || null,
+      notificationStatus: data.notificationStatus || 'not_requested',
+      smsStatus: data.smsStatus || 'not_requested',
+      issuedAt: data.issuedAt || serverTimestamp(),
+      createdBy: data.createdBy || 'Clinic Staff',
+      createdAt: serverTimestamp(),
+    };
+
+    // Remove any remaining undefined values
+    Object.keys(cleanData).forEach(key => {
+      if (cleanData[key] === undefined) {
+        cleanData[key] = null;
+      }
+    });
+
+    const docRef = await addDoc(prescriptionsRef, cleanData);
+    console.log('✅ Prescription added with ID:', docRef.id);
+    return docRef.id;
+  } catch (error) {
+    console.error('❌ Error adding prescription:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all prescriptions (most recent first)
+ */
+export async function getPrescriptions(): Promise<Prescription[]> {
+  try {
+    const prescriptionsRef = collection(db, 'prescriptions');
+    const snapshot = await getDocs(prescriptionsRef);
+    const prescriptions = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as Prescription[];
+
+    // Sort recent first
+    prescriptions.sort((a, b) => {
+      const timeA = a.issuedAt?.toDate ? a.issuedAt.toDate().getTime() : new Date(a.issuedAt || a.createdAt || 0).getTime();
+      const timeB = b.issuedAt?.toDate ? b.issuedAt.toDate().getTime() : new Date(b.issuedAt || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    return prescriptions;
+  } catch (error) {
+    console.error('❌ Error fetching prescriptions:', error);
+    return [];
+  }
+}
+
+/**
+ * Get prescriptions for a specific student by studentId, docId, or name
+ */
+export async function getStudentPrescriptions(studentIdentifier: string): Promise<Prescription[]> {
+  try {
+    const all = await getPrescriptions();
+    const idLower = (studentIdentifier || '').trim().toLowerCase();
+    if (!idLower) return [];
+
+    return all.filter(p => {
+      const pStudentId = String(p.studentId || '').trim().toLowerCase();
+      const pDocId = String(p.studentDocId || '').trim().toLowerCase();
+      const pName = String(p.studentName || '').trim().toLowerCase();
+      return pStudentId === idLower || pDocId === idLower || pName === idLower;
+    });
+  } catch (error) {
+    console.error('❌ Error fetching student prescriptions:', error);
+    return [];
+  }
+}
+
+/**
+ * Send an email notification to parents for an issued doctor prescription
+ */
+export async function sendPrescriptionEmailNotification(data: {
+  parentEmail: string;
+  parentName?: string;
+  studentName: string;
+  grade: string;
+  doctorName: string;
+  diagnosis: string;
+  medications: string;
+  instructions: string;
+  prescriptionUrl?: string;
+  dateStr?: string;
+}): Promise<{ success: boolean; method: string }> {
+  console.log('📧 Preparing parent prescription email notification...');
+  console.log('📧 Recipient:', data.parentEmail);
+
+  if (!data.parentEmail || !data.parentEmail.includes('@')) {
+    throw new Error(`Invalid parent email address: "${data.parentEmail}"`);
+  }
+
+  let serviceId = DEFAULT_EMAILJS_CONFIG.serviceId;
+  let templateId = DEFAULT_EMAILJS_CONFIG.templateId;
+  let publicKey = DEFAULT_EMAILJS_CONFIG.publicKey;
+
+  try {
+    const settingsRef = doc(db, 'settings', 'emailjs');
+    const settingsDoc = await getDoc(settingsRef);
+    if (settingsDoc.exists()) {
+      const emailSettings = settingsDoc.data();
+      if (emailSettings.serviceId) serviceId = emailSettings.serviceId;
+      if (emailSettings.templateId) templateId = emailSettings.templateId;
+      if (emailSettings.publicKey) publicKey = emailSettings.publicKey;
+    }
+  } catch (readErr) {
+    console.warn('⚠️ Could not read settings/emailjs from Firestore, using default:', readErr);
+  }
+
+  const currentDate = data.dateStr || new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  const fullInstructions = [
+    data.medications ? `Prescribed Medications: ${data.medications}` : '',
+    data.instructions ? `Doctor's Advice: ${data.instructions}` : '',
+    data.prescriptionUrl ? `Prescription Document / Rx: ${data.prescriptionUrl}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  const templateParams = {
+    to_email: data.parentEmail,
+    to_name: data.parentName || 'Parent / Guardian',
+    student_name: data.studentName,
+    grade: data.grade,
+    symptoms: data.diagnosis,
+    treatment: data.medications || 'Doctor Prescription Issued',
+    pickup_required: 'No',
+    visit_date: currentDate,
+    nurse_name: data.doctorName,
+    nurse_notes: fullInstructions,
+    subject: `[NDKC ClinicCare] Official Doctor's Prescription Issued for ${data.studentName}`,
+  };
+
+  // Attempt 1: via emailjs-com SDK
+  try {
+    await emailjs.send(serviceId, templateId, templateParams, publicKey);
+    console.log('✅ Prescription email sent successfully via EmailJS SDK to:', data.parentEmail);
+    return { success: true, method: 'sdk' };
+  } catch (sdkError: any) {
+    console.warn('⚠️ emailjs.send SDK failed, attempting direct fetch API fallback...', sdkError);
+
+    // Attempt 2: Direct REST API fetch to EmailJS
+    const response = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*'
+      },
+      body: JSON.stringify({
+        service_id: serviceId,
+        template_id: templateId,
+        user_id: publicKey,
+        template_params: templateParams
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`EmailJS API Error (${response.status}): ${errorText || response.statusText}`);
+    }
+
+    console.log('✅ Prescription email sent successfully via EmailJS REST API fallback to:', data.parentEmail);
+    return { success: true, method: 'rest_api' };
+  }
+}
+
+/**
+ * Send an SMS text message to parents for an issued doctor prescription via PhilSMS
+ */
+export async function sendPrescriptionSMSNotification(data: {
+  parentPhone: string;
+  parentName?: string;
+  studentName: string;
+  grade?: string;
+  doctorName: string;
+  diagnosis: string;
+  medications: string;
+}): Promise<any> {
+  console.log('📱 Preparing parent prescription SMS notification (PhilSMS)...');
+  console.log('📱 Recipient phone:', data.parentPhone);
+
+  if (!data.parentPhone || !data.parentPhone.trim()) {
+    throw new Error('No recipient phone number provided for SMS');
+  }
+
+  try {
+    let apiKey = DEFAULT_PHILSMS_CONFIG.apiKey;
+    let senderName = DEFAULT_PHILSMS_CONFIG.senderName;
+
+    try {
+      for (const col of ['philsms', 'sms', 'fmcsms']) {
+        const settingsRef = doc(db, 'settings', col);
+        const settingsDoc = await getDoc(settingsRef);
+        if (settingsDoc.exists()) {
+          const smsSettings = settingsDoc.data();
+          if (smsSettings.apiKey) apiKey = smsSettings.apiKey;
+          if (smsSettings.senderName) senderName = smsSettings.senderName;
+          break;
+        }
+      }
+    } catch (readErr) {
+      console.warn('⚠️ Could not read settings/sms from Firestore, using default config:', readErr);
+    }
+
+    const validSenderId = (senderName || 'PhilSMS').trim().substring(0, 11);
+
+    // Format phone number to 639XXXXXXXXX
+    let phone = data.parentPhone.replace(/[\s\-\(\)\+]/g, '');
+    if (phone.startsWith('0')) {
+      phone = '63' + phone.substring(1);
+    } else if (!phone.startsWith('63')) {
+      phone = '63' + phone;
+    }
+
+    if (phone.length < 12) {
+      throw new Error(`Invalid mobile number format: "${data.parentPhone}". Expected 11 digits (e.g., 09123456789).`);
+    }
+
+    // Build concise SMS text
+    // Note: PhilSMS strict spam filter blocks the word "account" (anti-phishing regulation).
+    // Using "parent portal" delivers successfully without triggering spam filters.
+    const pGreeting = data.parentName ? `Dear ${data.parentName}, ` : 'Dear Parent, ';
+    const medSummary = data.medications.replace(/\n/g, ', ');
+    let message = `${pGreeting}Dr. ${data.doctorName} issued an Rx for ${data.studentName}: ${medSummary}. Pls login to your parent portal to view your children's prescription. -NDKC Clinic`;
+
+    if (message.length > 160) {
+      const truncatedMed = medSummary.length > 30 ? medSummary.substring(0, 27) + '...' : medSummary;
+      message = `${pGreeting}Dr. ${data.doctorName} issued Rx for ${data.studentName}: ${truncatedMed}. Pls login to your parent portal to view your children's prescription. -NDKC`;
+      if (message.length > 160) {
+        message = `${pGreeting}Rx issued for ${data.studentName}. Pls login to your parent portal to view your children's prescription. -NDKC Clinic`;
+      }
+    }
+
+    console.log('📱 Sending PhilSMS prescription text to:', phone, 'Message:', message);
+
+    const response = await fetch('https://dashboard.philsms.com/api/v3/sms/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${apiKey.trim()}`,
+      },
+      body: JSON.stringify({
+        recipient: phone,
+        sender_id: validSenderId,
+        type: 'plain',
+        sms_type: 'plain',
+        message: message,
+      }),
+    });
+
+    const responseText = await response.text();
+    let result: any;
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      result = { message: responseText };
+    }
+
+    console.log('📱 PhilSMS Prescription Response:', result);
+
+    if (result.status === 'error' || result.status === 'failed') {
+      throw new Error(result.message || 'Failed to send SMS via PhilSMS');
+    }
+
+    return result;
+  } catch (error: any) {
+    console.error('❌ Error sending prescription SMS:', error);
     throw error;
   }
 }

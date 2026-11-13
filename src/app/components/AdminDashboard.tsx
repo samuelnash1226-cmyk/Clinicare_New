@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { Users, Activity, TrendingUp, Download, BarChart3, BookOpen, GraduationCap, Building2, Layers, Filter, FileSpreadsheet } from 'lucide-react';
+import { Users, Activity, TrendingUp, Download, BarChart3, BookOpen, GraduationCap, Building2, Layers, Filter, FileSpreadsheet, Printer, CalendarDays, FileText, ClipboardList, Pill, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -59,10 +59,16 @@ export function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
+  type ReportFrequency = 'monthly' | 'weekly';
+  const [reportFrequency, setReportFrequency] = useState<ReportFrequency>('monthly');
+  const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  const [selectedWeek, setSelectedWeek] = useState<string>('current');
+  const [allTransactions, setAllTransactions] = useState<any[]>([]);
 
   const symptomChartRef = useRef<HTMLDivElement>(null);
   const gradeChartRef = useRef<HTMLDivElement>(null);
   const deptChartRef = useRef<HTMLDivElement>(null);
+  const medChartRef = useRef<HTMLDivElement>(null);
 
   const loadRawData = async () => {
     setLoading(true);
@@ -76,6 +82,11 @@ export function AdminDashboard() {
       const visitsSnapshot = await getDocs(collection(db, 'clinicVisits'));
       const visits = visitsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAllVisits(visits);
+
+      // Load inventory transactions
+      const txSnapshot = await getDocs(collection(db, 'inventoryTransactions'));
+      const txList = txSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllTransactions(txList);
     } catch (error) {
       console.error('Error loading analytics raw data:', error);
       toast.error('Failed to load analytics data');
@@ -99,6 +110,152 @@ export function AdminDashboard() {
     if (activeBranch === 'ALL') return true;
     return getBranchFromGrade(student.grade) === activeBranch;
   });
+
+  // Generate month options from all visits
+  const monthOptions = useMemo(() => {
+    const months = new Set<string>();
+    allVisits.forEach(v => {
+      const d = v.timestamp?.toDate ? v.timestamp.toDate() : new Date(v.timestamp || v.createdAt || 0);
+      if (!isNaN(d.getTime())) {
+        months.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+      }
+    });
+    return Array.from(months).sort().reverse();
+  }, [allVisits]);
+
+  // Generate week options (last 12 weeks)
+  const weekOptions = useMemo(() => {
+    const list: { id: string; label: string; start: Date; end: Date }[] = [];
+    const now = new Date();
+    
+    // Find current Monday
+    const currentDay = now.getDay();
+    const diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+    const currentMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
+    currentMonday.setHours(0, 0, 0, 0);
+
+    for (let i = 0; i < 12; i++) {
+      const start = new Date(currentMonday);
+      start.setDate(currentMonday.getDate() - (i * 7));
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23, 59, 59, 999);
+
+      const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+      let prefix = '';
+      if (i === 0) prefix = 'This Week: ';
+      else if (i === 1) prefix = 'Last Week: ';
+      else prefix = `${i} wks ago: `;
+
+      const id = i === 0 ? 'current' : `${start.toISOString().split('T')[0]}_${end.toISOString().split('T')[0]}`;
+      list.push({
+        id,
+        label: `${prefix}${startStr} – ${endStr}`,
+        start,
+        end,
+      });
+    }
+
+    return list;
+  }, []);
+
+  // Filter visits by selected period (Monthly or Weekly)
+  const periodFilteredVisits = useMemo(() => {
+    if (reportFrequency === 'monthly') {
+      if (selectedMonth === 'ALL') return filteredVisits;
+      const [y, m] = selectedMonth.split('-').map(Number);
+      return filteredVisits.filter(v => {
+        const d = v.timestamp?.toDate ? v.timestamp.toDate() : new Date(v.timestamp || v.createdAt || 0);
+        return d.getFullYear() === y && d.getMonth() + 1 === m;
+      });
+    } else {
+      const activeWeek = weekOptions.find(w => w.id === selectedWeek) || weekOptions[0];
+      if (!activeWeek) return filteredVisits;
+      return filteredVisits.filter(v => {
+        const d = v.timestamp?.toDate ? v.timestamp.toDate() : new Date(v.timestamp || v.createdAt || 0);
+        return d >= activeWeek.start && d <= activeWeek.end;
+      });
+    }
+  }, [filteredVisits, reportFrequency, selectedMonth, selectedWeek, weekOptions]);
+
+  // Backward compatibility alias for any existing reference
+  const monthFilteredVisits = periodFilteredVisits;
+
+  // Filter transactions by selected period (Monthly or Weekly) and active department branch
+  const periodFilteredTransactions = useMemo(() => {
+    let txs = allTransactions;
+    if (reportFrequency === 'monthly') {
+      if (selectedMonth !== 'ALL') {
+        const [y, m] = selectedMonth.split('-').map(Number);
+        txs = txs.filter(tx => {
+          const d = tx.timestamp?.toDate ? tx.timestamp.toDate() : (tx.createdAt?.toDate ? tx.createdAt.toDate() : new Date(tx.timestamp || tx.createdAt || 0));
+          return d.getFullYear() === y && d.getMonth() + 1 === m;
+        });
+      }
+    } else {
+      const activeWeek = weekOptions.find(w => w.id === selectedWeek) || weekOptions[0];
+      if (activeWeek) {
+        txs = txs.filter(tx => {
+          const d = tx.timestamp?.toDate ? tx.timestamp.toDate() : (tx.createdAt?.toDate ? tx.createdAt.toDate() : new Date(tx.timestamp || tx.createdAt || 0));
+          return d >= activeWeek.start && d <= activeWeek.end;
+        });
+      }
+    }
+
+    // Filter by branch if activeBranch !== 'ALL'
+    if (activeBranch !== 'ALL') {
+      const studentMap = new Map(allStudents.map(s => [s.id, s]));
+      const studentIdMap = new Map(allStudents.map(s => [s.studentId, s]));
+      const studentNameMap = new Map(allStudents.map(s => [(s.name || '').toLowerCase(), s]));
+
+      txs = txs.filter(tx => {
+        let grade = tx.grade;
+        if (!grade && tx.studentId) {
+          grade = studentMap.get(tx.studentId)?.grade || studentIdMap.get(tx.studentId)?.grade;
+        }
+        if (!grade && tx.patientName) {
+          grade = studentNameMap.get((tx.patientName || '').toLowerCase())?.grade;
+        }
+        if (!grade) {
+          const pName = (tx.patientName || '').toLowerCase();
+          if (pName.includes('college') || pName.includes('staff') || pName.includes('faculty') || pName.includes('personnel')) {
+            grade = 'College';
+          }
+        }
+        if (!grade) return false;
+        return getBranchFromGrade(grade) === activeBranch;
+      });
+    }
+
+    // Sort recent first
+    txs.sort((a: any, b: any) => {
+      const tA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : (a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0);
+      const tB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : (b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0);
+      return tB - tA;
+    });
+    return txs;
+  }, [allTransactions, allStudents, activeBranch, reportFrequency, selectedMonth, selectedWeek, weekOptions]);
+
+  // Backward compatibility alias
+  const monthFilteredTransactions = periodFilteredTransactions;
+
+  const reportPeriodLabel = useMemo(() => {
+    if (reportFrequency === 'monthly') {
+      return selectedMonth === 'ALL'
+        ? 'All Months (All Time)'
+        : new Date(Number(selectedMonth.split('-')[0]), Number(selectedMonth.split('-')[1]) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    } else {
+      const activeWeek = weekOptions.find(w => w.id === selectedWeek) || weekOptions[0];
+      return activeWeek ? activeWeek.label : 'Weekly';
+    }
+  }, [reportFrequency, selectedMonth, selectedWeek, weekOptions]);
+
+  const reportTitle = reportFrequency === 'weekly' ? 'Weekly Health Report' : 'Monthly Health Report';
+  const selectedMonthLabel = reportPeriodLabel;
 
   // Calculate statistics for active filter
   const weekAgo = new Date();
@@ -124,16 +281,23 @@ export function AdminDashboard() {
     College: allVisits.filter(v => getBranchFromGrade(v.grade) === 'College').length,
   };
 
-  // Department distribution chart data for ALL view
+  // Department breakdown for selected period
+  const periodBranchCounts = {
+    IBED: periodFilteredVisits.filter(v => getBranchFromGrade(v.grade) === 'IBED').length,
+    SHS: periodFilteredVisits.filter(v => getBranchFromGrade(v.grade) === 'SHS').length,
+    College: periodFilteredVisits.filter(v => getBranchFromGrade(v.grade) === 'College').length,
+  };
+
+  // Department distribution chart data for ALL view (affected by period filter)
   const departmentChartData = [
-    { name: 'IBED', value: branchCounts.IBED, color: '#3B82F6' },
-    { name: 'Senior High School (SHS)', value: branchCounts.SHS, color: '#8B5CF6' },
-    { name: 'College / Personnel', value: branchCounts.College, color: '#10B981' },
+    { name: 'IBED', value: periodBranchCounts.IBED, color: '#3B82F6' },
+    { name: 'Senior High School (SHS)', value: periodBranchCounts.SHS, color: '#8B5CF6' },
+    { name: 'College / Personnel', value: periodBranchCounts.College, color: '#10B981' },
   ].filter(item => item.value > 0);
 
-  // Common Symptoms Analysis for filtered visits
+  // Common Symptoms Analysis for periodFilteredVisits (affected by branch, month, and week filters)
   const symptomCounts: Record<string, number> = {};
-  filteredVisits.forEach(visit => {
+  periodFilteredVisits.forEach(visit => {
     const symptoms = (visit.symptoms || '').toLowerCase();
     if (!symptoms) return;
 
@@ -165,9 +329,9 @@ export function AdminDashboard() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 8); // Top 8 symptoms
 
-  // Visits by Grade/Year level for filtered visits
+  // Visits by Grade/Year level for periodFilteredVisits (affected by branch, month, and week filters)
   const gradeCounts: Record<string, number> = {};
-  filteredVisits.forEach(visit => {
+  periodFilteredVisits.forEach(visit => {
     const grade = visit.grade || 'Unspecified';
     gradeCounts[grade] = (gradeCounts[grade] || 0) + 1;
   });
@@ -180,174 +344,479 @@ export function AdminDashboard() {
     }))
     .sort((a, b) => b.value - a.value);
 
-  // PDF Report Export
-  const handleDownloadReport = async () => {
-    if (!symptomChartRef.current || !gradeChartRef.current) {
-      toast.error('Charts not ready. Please wait...');
-      return;
-    }
+  // Dispensed Medicines Analysis for periodFilteredTransactions (affected by branch, month, and week filters)
+  const dispensedMedCounts: Record<string, { name: string; brand: string; genericName: string; count: number; unit: string }> = {};
 
+  periodFilteredTransactions.forEach(tx => {
+    const isDispensed = tx.type === 'dispensed' || tx.type === 'dispense' || (tx.quantityDispensed && tx.quantityDispensed > 0);
+    if (!isDispensed) return;
+
+    const brand = (tx.brand || '').trim();
+    const genericName = (tx.genericName || tx.itemName || 'Medicine').trim();
+    
+    // Display name: prefer "Brand (Generic)" if both exist, otherwise Brand or Generic
+    const displayName = brand && genericName && brand.toLowerCase() !== genericName.toLowerCase()
+      ? `${brand} (${genericName})`
+      : (brand || genericName);
+
+    const qty = Number(tx.quantityDispensed) || Math.abs(Number(tx.quantityChanged) || 0) || 1;
+    const unit = tx.unit || 'pcs';
+
+    if (!dispensedMedCounts[displayName]) {
+      dispensedMedCounts[displayName] = {
+        name: displayName,
+        brand,
+        genericName,
+        count: 0,
+        unit
+      };
+    }
+    dispensedMedCounts[displayName].count += qty;
+  });
+
+  const dispensedMedChartData = Object.values(dispensedMedCounts)
+    .map((item, index) => ({
+      id: `dispensed-med-${index}`,
+      name: item.name,
+      brand: item.brand,
+      genericName: item.genericName,
+      count: item.count,
+      unit: item.unit
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8); // Top 8 dispensed medicines
+
+  const totalDispensedInPeriod = dispensedMedChartData.reduce((acc, curr) => acc + curr.count, 0);
+
+  // Comprehensive Itemized Report PDF Export (Weekly or Monthly)
+  const handleDownloadReport = async () => {
     setDownloading(true);
     try {
-      const symptomChartImage = await toPng(symptomChartRef.current, {
-        quality: 1,
-        pixelRatio: 2,
-        backgroundColor: '#ffffff'
-      });
-      const gradeChartImage = await toPng(gradeChartRef.current, {
-        quality: 1,
-        pixelRatio: 2,
-        backgroundColor: '#ffffff'
-      });
-
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-      });
-
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 15;
-      let yPosition = 20;
+      const margin = 12;
+      const contentWidth = pageWidth - margin * 2;
+      let y = 0;
 
-      // Header Background
-      pdf.setFillColor(28, 124, 84);
-      pdf.rect(0, 0, pageWidth, 35, 'F');
+      const addPageIfNeeded = (neededHeight: number) => {
+        if (y + neededHeight > pageHeight - 20) {
+          pdf.addPage();
+          y = 15;
+          return true;
+        }
+        return false;
+      };
 
-      // Title
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(22);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('NDKC ClinicCare', pageWidth / 2, 14, { align: 'center' });
-
-      pdf.setFontSize(13);
-      pdf.setFont('helvetica', 'normal');
       const activeLabel = BRANCHES.find(b => b.id === activeBranch)?.label || 'All Departments';
-      pdf.text(`Analytics & Health Report (${activeLabel})`, pageWidth / 2, 22, { align: 'center' });
+
+      // ===== PAGE 1: HEADER + SUMMARY =====
+      // Header band
+      pdf.setFillColor(28, 124, 84);
+      pdf.rect(0, 0, pageWidth, 32, 'F');
+
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(20);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('NDKC ClinicCare', pageWidth / 2, 12, { align: 'center' });
+
+      pdf.setFontSize(11);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Itemized ${reportTitle}`, pageWidth / 2, 19, { align: 'center' });
 
       pdf.setFontSize(9);
-      const dateStr = new Date().toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
-      pdf.text(`Report Generated: ${dateStr}`, pageWidth / 2, 29, { align: 'center' });
+      pdf.text(`${activeLabel} • ${reportPeriodLabel}`, pageWidth / 2, 25, { align: 'center' });
 
-      yPosition = 45;
+      pdf.setFontSize(7);
+      pdf.text(`Generated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`, pageWidth / 2, 30, { align: 'center' });
 
-      // Summary Statistics Section
+      y = 40;
+
+      // Summary Stats
       pdf.setTextColor(28, 124, 84);
-      pdf.setFontSize(15);
+      pdf.setFontSize(13);
       pdf.setFont('helvetica', 'bold');
-      pdf.text('Summary Statistics', margin, yPosition);
-      yPosition += 10;
+      pdf.text('Executive Summary', margin, y);
+      y += 8;
 
-      const boxWidth = (pageWidth - (margin * 2) - 5) / 2;
-      const boxHeight = 22;
+      const summaryVisits = periodFilteredVisits;
+      const summaryTx = periodFilteredTransactions;
+      const uniquePatients = new Set(summaryVisits.map((v: any) => v.studentId || v.studentName)).size;
+      const totalMedsDispensed = summaryTx.filter((t: any) => t.type === 'dispensed').reduce((sum: number, t: any) => sum + (t.quantityDispensed || Math.abs(t.quantityChanged || 0)), 0);
 
-      // Total Students Box
-      pdf.setFillColor(59, 130, 246);
-      pdf.roundedRect(margin, yPosition, boxWidth, boxHeight, 3, 3, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(9);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text('Total Students', margin + 5, yPosition + 7);
-      pdf.setFontSize(18);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(stats.totalStudents.toString(), margin + 5, yPosition + 17);
+      const summaryItems = [
+        { label: 'Total Clinic Visits', value: summaryVisits.length.toString() },
+        { label: 'Unique Patients', value: uniquePatients.toString() },
+        { label: 'Medicine Releases', value: summaryTx.filter((t: any) => t.type === 'dispensed').length.toString() },
+        { label: 'Total Medicines Dispensed', value: `${totalMedsDispensed} units` },
+      ];
 
-      // Total Visits Box
-      pdf.setFillColor(16, 185, 129);
-      pdf.roundedRect(margin + boxWidth + 5, yPosition, boxWidth, boxHeight, 3, 3, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(9);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text('Total Clinic Visits', margin + boxWidth + 10, yPosition + 7);
-      pdf.setFontSize(18);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(stats.totalVisits.toString(), margin + boxWidth + 10, yPosition + 17);
-
-      yPosition += boxHeight + 5;
-
-      // Visits This Week Box
-      pdf.setFillColor(245, 158, 11);
-      pdf.roundedRect(margin, yPosition, boxWidth, boxHeight, 3, 3, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(9);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text('Visits This Week', margin + 5, yPosition + 7);
-      pdf.setFontSize(18);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(stats.thisWeekVisits.toString(), margin + 5, yPosition + 17);
-
-      // Daily Average Box
-      pdf.setFillColor(168, 85, 247);
-      pdf.roundedRect(margin + boxWidth + 5, yPosition, boxWidth, boxHeight, 3, 3, 'F');
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(9);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text('Daily Average', margin + boxWidth + 10, yPosition + 7);
-      pdf.setFontSize(18);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(stats.avgVisitsPerDay.toFixed(1), margin + boxWidth + 10, yPosition + 17);
-
-      yPosition += boxHeight + 15;
-
-      // Common Symptoms Chart
-      if (symptomChartData.length > 0) {
-        pdf.setTextColor(28, 124, 84);
-        pdf.setFontSize(15);
+      const boxW = (contentWidth - 6) / 2;
+      const boxH = 16;
+      const colors = [[59,130,246],[16,185,129],[245,158,11],[168,85,247]];
+      summaryItems.forEach((item, i) => {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        const bx = margin + col * (boxW + 6);
+        const by = y + row * (boxH + 4);
+        pdf.setFillColor(colors[i][0], colors[i][1], colors[i][2]);
+        pdf.roundedRect(bx, by, boxW, boxH, 2, 2, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFontSize(7);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(item.label, bx + 4, by + 6);
+        pdf.setFontSize(14);
         pdf.setFont('helvetica', 'bold');
-        pdf.text('Common Symptoms Analysis', margin, yPosition);
-        yPosition += 8;
+        pdf.text(item.value, bx + 4, by + 13);
+      });
+      y += (boxH + 4) * 2 + 8;
 
-        const chartWidth = pageWidth - (margin * 2);
-        const chartHeight = 65;
-        pdf.addImage(symptomChartImage, 'PNG', margin, yPosition, chartWidth, chartHeight);
-        yPosition += chartHeight + 15;
+      // Charts (if available)
+      try {
+        if (symptomChartRef.current) {
+          const symptomImg = await toPng(symptomChartRef.current, { quality: 1, pixelRatio: 2, backgroundColor: '#ffffff' });
+          addPageIfNeeded(75);
+          pdf.setTextColor(28, 124, 84);
+          pdf.setFontSize(12);
+          pdf.setFont('helvetica', 'bold');
+          pdf.text('Common Symptoms Analysis', margin, y);
+          y += 6;
+          pdf.addImage(symptomImg, 'PNG', margin, y, contentWidth, 60);
+          y += 65;
+        }
+        if (medChartRef.current) {
+          addPageIfNeeded(75);
+          const medImg = await toPng(medChartRef.current, { quality: 1, pixelRatio: 2, backgroundColor: '#ffffff' });
+          pdf.setTextColor(28, 124, 84);
+          pdf.setFontSize(12);
+          pdf.setFont('helvetica', 'bold');
+          pdf.text('Dispensed Medicines Analysis', margin, y);
+          y += 6;
+          pdf.addImage(medImg, 'PNG', margin, y, contentWidth, 60);
+          y += 65;
+        }
+        if (gradeChartRef.current) {
+          addPageIfNeeded(75);
+          const gradeImg = await toPng(gradeChartRef.current, { quality: 1, pixelRatio: 2, backgroundColor: '#ffffff' });
+          pdf.setTextColor(28, 124, 84);
+          pdf.setFontSize(12);
+          pdf.setFont('helvetica', 'bold');
+          pdf.text('Visits by Grade / Department', margin, y);
+          y += 6;
+          pdf.addImage(gradeImg, 'PNG', margin, y, contentWidth, 60);
+          y += 65;
+        }
+      } catch (chartErr) {
+        console.warn('Chart images not available for PDF:', chartErr);
       }
 
-      // Visits by Grade Chart
-      if (gradeChartData.length > 0) {
-        if (yPosition + 75 > pageHeight - 20) {
+      // ===== SECTION 2: ITEMIZED ILLNESS COMPLAINTS & VISITS =====
+      pdf.addPage();
+      y = 15;
+
+      pdf.setFillColor(28, 124, 84);
+      pdf.rect(0, 0, pageWidth, 10, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`Itemized Clinic Visits & Illness Complaints — ${reportPeriodLabel}`, pageWidth / 2, 7, { align: 'center' });
+      y = 18;
+
+      // Table header
+      const visitCols = [
+        { label: 'Date & Time', w: 28 },
+        { label: 'Student', w: 28 },
+        { label: 'Grade', w: 22 },
+        { label: 'Symptoms', w: 38 },
+        { label: 'Treatment', w: 35 },
+        { label: 'Nurse', w: 20 },
+        { label: 'Status', w: 15 },
+      ];
+
+      const drawVisitHeader = () => {
+        pdf.setFillColor(241, 245, 249);
+        pdf.rect(margin, y, contentWidth, 7, 'F');
+        pdf.setTextColor(30, 41, 59);
+        pdf.setFontSize(6.5);
+        pdf.setFont('helvetica', 'bold');
+        let cx = margin + 1;
+        visitCols.forEach(col => {
+          pdf.text(col.label, cx, y + 5);
+          cx += col.w;
+        });
+        y += 8;
+      };
+
+      drawVisitHeader();
+
+      // Sort visits recent first
+      const sortedVisits = [...summaryVisits].sort((a: any, b: any) => {
+        const tA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : new Date(a.timestamp || 0).getTime();
+        const tB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : new Date(b.timestamp || 0).getTime();
+        return tB - tA;
+      });
+
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(6);
+
+      sortedVisits.forEach((v: any, idx: number) => {
+        if (y + 8 > pageHeight - 20) {
           pdf.addPage();
-          yPosition = 20;
+          y = 15;
+          drawVisitHeader();
         }
 
-        pdf.setTextColor(28, 124, 84);
-        pdf.setFontSize(15);
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('Visits by Grade / Department Breakdown', margin, yPosition);
-        yPosition += 8;
+        if (idx % 2 === 0) {
+          pdf.setFillColor(248, 250, 252);
+          pdf.rect(margin, y - 1, contentWidth, 7, 'F');
+        }
 
-        const chartWidth = pageWidth - (margin * 2);
-        const chartHeight = 65;
-        pdf.addImage(gradeChartImage, 'PNG', margin, yPosition, chartWidth, chartHeight);
-        yPosition += chartHeight + 10;
+        const d = v.timestamp?.toDate ? v.timestamp.toDate() : new Date(v.timestamp || v.createdAt || 0);
+        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+        pdf.setTextColor(30, 41, 59);
+        let cx = margin + 1;
+
+        const truncate = (str: string, maxLen: number) => str && str.length > maxLen ? str.substring(0, maxLen - 2) + '..' : (str || '');
+
+        pdf.text(`${dateStr} ${timeStr}`, cx, y + 4); cx += visitCols[0].w;
+        pdf.text(truncate(v.studentName || '', 18), cx, y + 4); cx += visitCols[1].w;
+        pdf.text(truncate(v.grade || '', 14), cx, y + 4); cx += visitCols[2].w;
+        pdf.text(truncate(v.symptoms || '', 26), cx, y + 4); cx += visitCols[3].w;
+        pdf.text(truncate(v.treatment || '', 24), cx, y + 4); cx += visitCols[4].w;
+        pdf.text(truncate(v.nurseName || '', 14), cx, y + 4); cx += visitCols[5].w;
+        pdf.text(truncate(v.status || 'Completed', 10), cx, y + 4);
+
+        y += 7;
+      });
+
+      if (sortedVisits.length === 0) {
+        pdf.setTextColor(100, 116, 139);
+        pdf.setFontSize(9);
+        pdf.text('No clinic visits recorded for this period.', pageWidth / 2, y + 10, { align: 'center' });
+        y += 20;
       }
 
-      // Footer
-      const footerY = pageHeight - 12;
-      pdf.setDrawColor(28, 124, 84);
-      pdf.setLineWidth(0.5);
-      pdf.line(margin, footerY - 5, pageWidth - margin, footerY - 5);
+      // ===== SECTION 3: ITEMIZED MEDICINE RELEASES =====
+      pdf.addPage();
+      y = 15;
 
-      pdf.setFontSize(8);
-      pdf.setTextColor(100, 116, 139);
-      pdf.setFont('helvetica', 'italic');
-      pdf.text('Generated by NDKC ClinicCare Analytics System', pageWidth / 2, footerY, { align: 'center' });
+      pdf.setFillColor(59, 130, 246);
+      pdf.rect(0, 0, pageWidth, 10, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`Itemized Medicine Releases — ${reportPeriodLabel}`, pageWidth / 2, 7, { align: 'center' });
+      y = 18;
+
+      const medCols = [
+        { label: 'Date & Time', w: 30 },
+        { label: 'Brand', w: 30 },
+        { label: 'Generic Name', w: 32 },
+        { label: 'Qty', w: 14 },
+        { label: 'Patient', w: 30 },
+        { label: 'Dispensed By', w: 28 },
+      ];
+
+      const drawMedHeader = () => {
+        pdf.setFillColor(239, 246, 255);
+        pdf.rect(margin, y, contentWidth, 7, 'F');
+        pdf.setTextColor(30, 41, 59);
+        pdf.setFontSize(6.5);
+        pdf.setFont('helvetica', 'bold');
+        let cx = margin + 1;
+        medCols.forEach(col => {
+          pdf.text(col.label, cx, y + 5);
+          cx += col.w;
+        });
+        y += 8;
+      };
+
+      drawMedHeader();
+
+      const dispensedTx = summaryTx.filter((t: any) => t.type === 'dispensed');
+
       pdf.setFont('helvetica', 'normal');
-      pdf.text('Notre Dame of Kidapawan College', pageWidth / 2, footerY + 4, { align: 'center' });
+      pdf.setFontSize(6);
 
-      pdf.save(`NDKC_Analytics_${activeBranch}_Report_${new Date().toISOString().split('T')[0]}.pdf`);
-      toast.success('Analytics report downloaded successfully! 🎉');
+      dispensedTx.forEach((tx: any, idx: number) => {
+        if (y + 8 > pageHeight - 20) {
+          pdf.addPage();
+          y = 15;
+          drawMedHeader();
+        }
+
+        if (idx % 2 === 0) {
+          pdf.setFillColor(248, 250, 252);
+          pdf.rect(margin, y - 1, contentWidth, 7, 'F');
+        }
+
+        const d = tx.timestamp?.toDate ? tx.timestamp.toDate() : (tx.createdAt?.toDate ? tx.createdAt.toDate() : new Date(tx.timestamp || tx.createdAt || 0));
+        const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        const qty = tx.quantityDispensed || Math.abs(tx.quantityChanged || 0);
+
+        pdf.setTextColor(30, 41, 59);
+        let cx = margin + 1;
+
+        const truncate = (str: string, maxLen: number) => str && str.length > maxLen ? str.substring(0, maxLen - 2) + '..' : (str || '');
+
+        pdf.text(`${dateStr} ${timeStr}`, cx, y + 4); cx += medCols[0].w;
+        pdf.text(truncate(tx.brand || '—', 20), cx, y + 4); cx += medCols[1].w;
+        pdf.text(truncate(tx.genericName || tx.itemName || '', 22), cx, y + 4); cx += medCols[2].w;
+        pdf.text(`${qty} ${tx.unit || 'pcs'}`, cx, y + 4); cx += medCols[3].w;
+        pdf.text(truncate(tx.patientName || '—', 20), cx, y + 4); cx += medCols[4].w;
+        pdf.text(truncate(tx.dispensedBy || '—', 18), cx, y + 4);
+
+        y += 7;
+      });
+
+      if (dispensedTx.length === 0) {
+        pdf.setTextColor(100, 116, 139);
+        pdf.setFontSize(9);
+        pdf.text('No medicine releases recorded for this period.', pageWidth / 2, y + 10, { align: 'center' });
+        y += 20;
+      }
+
+      // ===== SIGN-OFF SECTION =====
+      addPageIfNeeded(50);
+      y += 15;
+
+      pdf.setDrawColor(200, 200, 200);
+      pdf.setLineWidth(0.3);
+      pdf.line(margin, y, pageWidth - margin, y);
+      y += 10;
+
+      pdf.setTextColor(30, 41, 59);
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'normal');
+
+      const sigWidth = (contentWidth - 20) / 2;
+      // Prepared by
+      pdf.text('Prepared by:', margin, y);
+      y += 15;
+      pdf.line(margin, y, margin + sigWidth, y);
+      y += 4;
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('School Nurse', margin, y);
+      pdf.setFont('helvetica', 'normal');
+      y += 4;
+      pdf.text('NDKC Clinic', margin, y);
+
+      // Noted by (same row)
+      const noteX = margin + sigWidth + 20;
+      y -= 23;
+      pdf.text('Noted by:', noteX, y);
+      y += 15;
+      pdf.line(noteX, y, noteX + sigWidth, y);
+      y += 4;
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('School Physician / Administrator', noteX, y);
+      pdf.setFont('helvetica', 'normal');
+      y += 4;
+      pdf.text('Notre Dame of Kidapawan College', noteX, y);
+
+      // Footer on all pages
+      const totalPages = pdf.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        pdf.setPage(p);
+        pdf.setFontSize(7);
+        pdf.setTextColor(150, 150, 150);
+        pdf.setFont('helvetica', 'italic');
+        pdf.text('Generated by NDKC ClinicCare Analytics System • Notre Dame of Kidapawan College', pageWidth / 2, pageHeight - 6, { align: 'center' });
+        pdf.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 6, { align: 'right' });
+      }
+
+      const periodSlug = reportFrequency === 'weekly' ? (selectedWeek || 'current') : (selectedMonth === 'ALL' ? 'AllTime' : selectedMonth);
+      const fileName = `NDKC_${reportFrequency === 'weekly' ? 'Weekly' : 'Monthly'}_Report_${activeBranch}_${periodSlug}_${new Date().toISOString().split('T')[0]}.pdf`;
+      pdf.save(fileName);
+      toast.success(`Itemized ${reportFrequency} report downloaded! 📄`);
     } catch (error) {
       console.error('Error generating PDF:', error);
       toast.error('Failed to generate report');
     } finally {
       setDownloading(false);
     }
+  };
+
+  // Print Report (Weekly or Monthly)
+  const handlePrintReport = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow pop-ups to print the report');
+      return;
+    }
+
+    const sortedVisits = [...periodFilteredVisits].sort((a: any, b: any) => {
+      const tA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : new Date(a.timestamp || 0).getTime();
+      const tB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : new Date(b.timestamp || 0).getTime();
+      return tB - tA;
+    });
+
+    const dispensedTx = periodFilteredTransactions.filter((t: any) => t.type === 'dispensed');
+
+    const formatDate = (v: any) => {
+      const d = v.timestamp?.toDate ? v.timestamp.toDate() : (v.createdAt?.toDate ? v.createdAt.toDate() : new Date(v.timestamp || v.createdAt || 0));
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    };
+
+    const activeLabel = BRANCHES.find(b => b.id === activeBranch)?.label || 'All Departments';
+
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>NDKC ${reportTitle}</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #1e293b; padding: 20px; }
+        h1 { font-size: 20px; color: #1C7C54; text-align: center; margin-bottom: 4px; }
+        h2 { font-size: 14px; color: #1C7C54; margin: 16px 0 8px; border-bottom: 2px solid #1C7C54; padding-bottom: 4px; }
+        .subtitle { text-align: center; color: #64748b; margin-bottom: 16px; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 10px; }
+        th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-weight: 700; border-bottom: 2px solid #e2e8f0; }
+        td { padding: 5px 8px; border-bottom: 1px solid #e2e8f0; }
+        tr:nth-child(even) { background: #f8fafc; }
+        .sig-section { margin-top: 40px; display: flex; justify-content: space-between; }
+        .sig-box { width: 45%; }
+        .sig-line { border-top: 1px solid #334155; margin-top: 30px; padding-top: 4px; }
+        @media print { body { padding: 10px; } }
+      </style></head><body>
+      <h1>NDKC ClinicCare</h1>
+      <div class="subtitle">Itemized ${reportTitle} • ${activeLabel} • ${reportPeriodLabel}</div>
+
+      <h2>Clinic Visits & Illness Complaints (${sortedVisits.length} records)</h2>
+      <table>
+        <thead><tr><th>Date & Time</th><th>Student</th><th>Grade</th><th>Symptoms</th><th>Treatment</th><th>Nurse</th><th>Status</th></tr></thead>
+        <tbody>${sortedVisits.map((v: any) => `<tr>
+          <td>${formatDate(v)}</td>
+          <td>${v.studentName || ''}</td>
+          <td>${v.grade || ''}</td>
+          <td>${v.symptoms || ''}</td>
+          <td>${v.treatment || ''}</td>
+          <td>${v.nurseName || ''}</td>
+          <td>${v.status || 'Completed'}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+
+      <h2>Medicine Releases (${dispensedTx.length} records)</h2>
+      <table>
+        <thead><tr><th>Date & Time</th><th>Brand</th><th>Generic Name</th><th>Qty</th><th>Patient</th><th>Dispensed By</th></tr></thead>
+        <tbody>${dispensedTx.map((tx: any) => `<tr>
+          <td>${formatDate(tx)}</td>
+          <td>${tx.brand || '—'}</td>
+          <td>${tx.genericName || tx.itemName || ''}</td>
+          <td>${tx.quantityDispensed || Math.abs(tx.quantityChanged || 0)} ${tx.unit || 'pcs'}</td>
+          <td>${tx.patientName || '—'}</td>
+          <td>${tx.dispensedBy || '—'}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+
+      <div class="sig-section">
+        <div class="sig-box"><div class="sig-line"><strong>School Nurse</strong><br/>NDKC Clinic</div></div>
+        <div class="sig-box"><div class="sig-line"><strong>School Physician / Administrator</strong><br/>Notre Dame of Kidapawan College</div></div>
+      </div>
+      </body></html>`);
+
+    printWindow.document.close();
+    setTimeout(() => { printWindow.print(); }, 500);
   };
 
   // CSV Backup Export — downloads two CSV files: Clinic Visits & Students
@@ -486,13 +955,74 @@ export function AdminDashboard() {
             Real-time symptoms and clinic visit trends partitioned by department
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
+          {/* Report Frequency Switcher: Monthly vs Weekly */}
+          <div className="bg-slate-100 p-1 rounded-xl flex gap-1 border border-slate-200">
+            <button
+              onClick={() => setReportFrequency('monthly')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer ${
+                reportFrequency === 'monthly'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setReportFrequency('weekly')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer ${
+                reportFrequency === 'weekly'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Weekly
+            </button>
+          </div>
+
+          {/* Period Selector (Month or Week Dropdown) */}
+          {reportFrequency === 'monthly' ? (
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="h-11 px-4 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-ndkc-green/30 cursor-pointer"
+            >
+              <option value="ALL">All Months (All Time)</option>
+              {monthOptions.map(m => {
+                const [yr, mo] = m.split('-');
+                const label = new Date(Number(yr), Number(mo) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                return <option key={m} value={m}>{label}</option>;
+              })}
+            </select>
+          ) : (
+            <select
+              value={selectedWeek}
+              onChange={(e) => setSelectedWeek(e.target.value)}
+              className="h-11 px-4 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-ndkc-green/30 cursor-pointer"
+            >
+              {weekOptions.map(w => (
+                <option key={w.id} value={w.id}>{w.label}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Print Report */}
+          <Button
+            onClick={handlePrintReport}
+            disabled={loading}
+            variant="outline"
+            className="h-11 px-4 border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            <Printer className="mr-2 h-4 w-4" />
+            Print {reportFrequency === 'weekly' ? 'Weekly' : 'Monthly'} Report
+          </Button>
+
           {/* CSV Backup Download */}
           <Button
             onClick={handleDownloadCSV}
             disabled={downloadingCsv || loading}
             variant="outline"
-            className="h-11 px-5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-400 disabled:opacity-50"
+            className="h-11 px-4 border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:border-emerald-400 disabled:opacity-50"
           >
             {downloadingCsv ? (
               <>
@@ -521,7 +1051,7 @@ export function AdminDashboard() {
             ) : (
               <>
                 <Download className="mr-2 h-4 w-4" />
-                Export Report
+                Export {reportFrequency === 'weekly' ? 'Weekly' : 'Monthly'} (PDF)
               </>
             )}
           </Button>
@@ -569,14 +1099,18 @@ export function AdminDashboard() {
 
       {/* Active Filter Indicator */}
       <div className="flex items-center justify-between rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
-        <div className="flex items-center gap-2 text-sm text-slate-700">
+        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
           <span className="font-semibold text-slate-900">Showing Data For:</span>
           <Badge className={BRANCHES.find(b => b.id === activeBranch)?.badgeColor}>
             {BRANCHES.find(b => b.id === activeBranch)?.label}
           </Badge>
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-300 font-semibold">
+            <CalendarDays className="mr-1 h-3.5 w-3.5" />
+            {reportPeriodLabel}
+          </Badge>
         </div>
         <span className="text-xs text-slate-500 font-medium">
-          {stats.totalVisits} visit{stats.totalVisits !== 1 ? 's' : ''} recorded
+          {periodFilteredVisits.length} visit{periodFilteredVisits.length !== 1 ? 's' : ''} recorded in {reportPeriodLabel}
         </span>
       </div>
 
@@ -597,14 +1131,16 @@ export function AdminDashboard() {
 
         <Card className="group border-slate-200 bg-white shadow-sm hover-lift">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-medium text-slate-600">Total Visits</CardTitle>
+            <CardTitle className="text-sm font-medium text-slate-600">
+              {reportFrequency === 'weekly' ? 'Visits (Selected Week)' : selectedMonth === 'ALL' ? 'Total Visits (All Time)' : 'Visits (Selected Month)'}
+            </CardTitle>
             <div className="rounded-lg bg-emerald-50 p-2.5 transition-colors group-hover:bg-emerald-100">
               <Activity className="h-5 w-5 text-emerald-600" />
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-slate-900">{stats.totalVisits}</div>
-            <p className="mt-1 text-sm text-slate-500">Total for {activeBranch === 'ALL' ? 'all departments' : activeBranch}</p>
+            <div className="text-3xl font-bold text-slate-900">{periodFilteredVisits.length}</div>
+            <p className="mt-1 text-sm text-slate-500">{reportPeriodLabel}</p>
           </CardContent>
         </Card>
 
@@ -648,12 +1184,12 @@ export function AdminDashboard() {
           <CardContent>
             <div className="grid gap-6 md:grid-cols-3">
               {[
-                { name: 'IBED', count: branchCounts.IBED, color: 'border-blue-300 bg-blue-50 text-blue-800', icon: BookOpen, desc: 'Kindergarten to Grade 10' },
-                { name: 'Senior High School (SHS)', count: branchCounts.SHS, color: 'border-violet-300 bg-violet-50 text-violet-800', icon: GraduationCap, desc: 'Grade 11 & Grade 12' },
-                { name: 'College / Personnel', count: branchCounts.College, color: 'border-emerald-300 bg-emerald-50 text-emerald-800', icon: Building2, desc: 'Higher Ed & Campus Staff' },
+                { name: 'IBED', count: periodBranchCounts.IBED, color: 'border-blue-300 bg-blue-50 text-blue-800', icon: BookOpen, desc: 'Kindergarten to Grade 10' },
+                { name: 'Senior High School (SHS)', count: periodBranchCounts.SHS, color: 'border-violet-300 bg-violet-50 text-violet-800', icon: GraduationCap, desc: 'Grade 11 & Grade 12' },
+                { name: 'College / Personnel', count: periodBranchCounts.College, color: 'border-emerald-300 bg-emerald-50 text-emerald-800', icon: Building2, desc: 'Higher Ed & Campus Staff' },
               ].map(dept => {
                 const Icon = dept.icon;
-                const pct = allVisits.length > 0 ? ((dept.count / allVisits.length) * 100).toFixed(1) : '0';
+                const pct = periodFilteredVisits.length > 0 ? ((dept.count / periodFilteredVisits.length) * 100).toFixed(1) : '0';
                 return (
                   <div key={dept.name} className={`rounded-2xl border-2 p-5 ${dept.color} transition-all hover:shadow-md`}>
                     <div className="flex items-center justify-between mb-2">
@@ -678,12 +1214,17 @@ export function AdminDashboard() {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Common Symptoms Analysis</span>
-              <Badge variant="outline" className="text-xs font-normal">
-                {activeBranch} View
-              </Badge>
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="text-xs font-semibold bg-emerald-50 text-emerald-800 border-emerald-300">
+                  {reportPeriodLabel}
+                </Badge>
+                <Badge variant="outline" className="text-xs font-normal">
+                  {activeBranch} View
+                </Badge>
+              </div>
             </CardTitle>
             <p className="mt-1 text-sm text-slate-500">
-              Most reported health concerns in {activeBranch === 'ALL' ? 'all departments' : activeBranch}
+              Most reported health concerns in {activeBranch === 'ALL' ? 'all departments' : activeBranch} for {reportPeriodLabel}
             </p>
           </CardHeader>
           <CardContent>
@@ -693,7 +1234,7 @@ export function AdminDashboard() {
               </div>
             ) : symptomChartData.length === 0 ? (
               <div className="flex h-80 items-center justify-center text-slate-400">
-                No symptom data available for {activeBranch}
+                No symptom data available for {activeBranch} in {reportPeriodLabel}
               </div>
             ) : (
               <div ref={symptomChartRef}>
@@ -730,12 +1271,17 @@ export function AdminDashboard() {
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Visits by Grade / Year Level</span>
-              <Badge variant="outline" className="text-xs font-normal">
-                {activeBranch} View
-              </Badge>
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="text-xs font-semibold bg-emerald-50 text-emerald-800 border-emerald-300">
+                  {reportPeriodLabel}
+                </Badge>
+                <Badge variant="outline" className="text-xs font-normal">
+                  {activeBranch} View
+                </Badge>
+              </div>
             </CardTitle>
             <p className="mt-1 text-sm text-slate-500">
-              Distribution across grade levels for {activeBranch === 'ALL' ? 'all departments' : activeBranch}
+              Distribution across grade levels for {activeBranch === 'ALL' ? 'all departments' : activeBranch} ({reportPeriodLabel})
             </p>
           </CardHeader>
           <CardContent>
@@ -745,7 +1291,7 @@ export function AdminDashboard() {
               </div>
             ) : gradeChartData.length === 0 ? (
               <div className="flex h-80 items-center justify-center text-slate-400">
-                No grade data available for {activeBranch}
+                No grade data available for {activeBranch} in {reportPeriodLabel}
               </div>
             ) : (
               <div ref={gradeChartRef}>
@@ -775,6 +1321,144 @@ export function AdminDashboard() {
                     />
                   </PieChart>
                 </ResponsiveContainer>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Dispensed Medicines Chart */}
+        <Card className="border-slate-200 bg-white shadow-sm">
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Pill className="h-5 w-5 text-emerald-600" />
+                <span>Dispensed Medicine Analysis</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="text-xs font-semibold bg-emerald-50 text-emerald-800 border-emerald-300">
+                  {reportPeriodLabel}
+                </Badge>
+                <Badge variant="outline" className="text-xs font-normal">
+                  {activeBranch} View
+                </Badge>
+              </div>
+            </CardTitle>
+            <p className="mt-1 text-sm text-slate-500">
+              Most released medications in {activeBranch === 'ALL' ? 'all departments' : activeBranch} for {reportPeriodLabel}
+            </p>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="flex h-80 items-center justify-center text-slate-400">
+                Loading chart data...
+              </div>
+            ) : dispensedMedChartData.length === 0 ? (
+              <div className="flex h-80 items-center justify-center text-slate-400">
+                No medicine releases recorded for {activeBranch} in {reportPeriodLabel}
+              </div>
+            ) : (
+              <div ref={medChartRef}>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={dispensedMedChartData} margin={{ top: 10, right: 10, left: -20, bottom: 25 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                    <XAxis
+                      dataKey="name"
+                      stroke="#64748B"
+                      interval={0}
+                      angle={-20}
+                      textAnchor="end"
+                      fontSize={11}
+                    />
+                    <YAxis stroke="#64748B" fontSize={11} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'white',
+                        border: '1px solid #E5E7EB',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                      }}
+                      formatter={(value: any, _name: any, item: any) => [
+                        `${value} ${item?.payload?.unit || 'units'}`,
+                        'Quantity Dispensed'
+                      ]}
+                    />
+                    <Bar dataKey="count" fill="#0D9488" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top Medicine Releases Breakdown */}
+        <Card className="border-slate-200 bg-white shadow-sm flex flex-col justify-between">
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ClipboardList className="h-5 w-5 text-ndkc-green" />
+                <span>Medicine Releases Summary</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="text-xs font-semibold bg-emerald-50 text-emerald-800 border-emerald-300">
+                  {reportPeriodLabel}
+                </Badge>
+                <Badge variant="outline" className="text-xs font-normal">
+                  {activeBranch} View
+                </Badge>
+              </div>
+            </CardTitle>
+            <p className="mt-1 text-sm text-slate-500">
+              Ranking and distribution of dispensed inventory items ({reportPeriodLabel})
+            </p>
+          </CardHeader>
+          <CardContent className="flex-1">
+            {loading ? (
+              <div className="flex h-80 items-center justify-center text-slate-400">
+                Loading summary...
+              </div>
+            ) : dispensedMedChartData.length === 0 ? (
+              <div className="flex h-80 items-center justify-center text-slate-400">
+                No medicine release activity for {activeBranch} in {reportPeriodLabel}
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                {dispensedMedChartData.map((item, idx) => {
+                  const sharePct = totalDispensedInPeriod > 0
+                    ? Math.round((item.count / totalDispensedInPeriod) * 100)
+                    : 0;
+                  return (
+                    <div key={item.id} className="flex items-center justify-between p-2.5 rounded-xl border border-slate-100 bg-slate-50/70 hover:bg-slate-50 transition-colors">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-800 shrink-0">
+                          {idx + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {item.brand && (
+                              <Badge className="bg-emerald-600 text-white text-[10px] px-1.5 py-0 font-semibold rounded">
+                                {item.brand}
+                              </Badge>
+                            )}
+                            <span className="font-semibold text-slate-800 text-sm truncate">
+                              {item.genericName || item.name}
+                            </span>
+                          </div>
+                          <div className="w-36 bg-slate-200 rounded-full h-1.5 mt-1.5 overflow-hidden">
+                            <div
+                              className="bg-emerald-600 h-1.5 rounded-full"
+                              style={{ width: `${sharePct}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0 ml-3">
+                        <span className="text-base font-bold text-slate-900">{item.count}</span>
+                        <span className="text-xs text-slate-500 ml-1">{item.unit}</span>
+                        <p className="text-[10px] font-semibold text-emerald-700">{sharePct}% of total</p>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </CardContent>

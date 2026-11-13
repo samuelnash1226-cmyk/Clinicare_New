@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Activity, Calendar, Clock, FileText, Heart, TrendingUp, AlertCircle, User, Download } from 'lucide-react';
+import { Input } from './ui/input';
+import { Activity, Calendar, Clock, FileText, Heart, TrendingUp, AlertCircle, User, Download, Search, X } from 'lucide-react';
 import { MedicalCertificateModal } from './MedicalCertificateModal';
 
 interface Visit {
@@ -32,6 +33,7 @@ export function StudentDashboard({ userEmail }: StudentDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [selectedVisit, setSelectedVisit] = useState<Visit | null>(null);
   const [showCertificate, setShowCertificate] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     loadStudentData();
@@ -41,43 +43,108 @@ export function StudentDashboard({ userEmail }: StudentDashboardProps) {
     try {
       setLoading(true);
 
-      // Get current user's data
-      const usersQuery = query(collection(db, 'users'), where('email', '==', userEmail));
-      const usersSnapshot = await getDocs(usersQuery);
+      const normalizedEmail = (userEmail || auth.currentUser?.email || '').trim().toLowerCase();
 
-      if (!usersSnapshot.empty) {
-        const userData = usersSnapshot.docs[0].data();
-        setStudentData(userData);
-
-        // Find the student document by email to get the document ID
-        const studentsQuery = query(collection(db, 'students'), where('email', '==', userEmail));
-        const studentsSnapshot = await getDocs(studentsQuery);
-
-        if (!studentsSnapshot.empty) {
-          const studentDocId = studentsSnapshot.docs[0].id;
-
-          // Load clinic visits for this student using the document ID
-          const visitsQuery = query(
-            collection(db, 'clinicVisits'),
-            where('studentId', '==', studentDocId)
-          );
-          const visitsSnapshot = await getDocs(visitsQuery);
-
-          const visitsData = visitsSnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          })) as Visit[];
-
-          // Sort by most recent first
-          visitsData.sort((a, b) => {
-            const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
-            const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
-            return dateB.getTime() - dateA.getTime();
-          });
-
-          setVisits(visitsData);
+      // 1. Get user document from 'users'
+      let userData: any = null;
+      if (auth.currentUser?.uid) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+          if (userDoc.exists()) {
+            userData = userDoc.data();
+          }
+        } catch (e) {
+          console.warn('Could not fetch user doc by uid:', e);
         }
       }
+
+      if (!userData && normalizedEmail) {
+        try {
+          const usersQuery = query(collection(db, 'users'), where('email', '==', userEmail));
+          const usersSnapshot = await getDocs(usersQuery);
+          if (!usersSnapshot.empty) {
+            userData = usersSnapshot.docs[0].data();
+          }
+        } catch (e) {
+          console.warn('Could not query users by email:', e);
+        }
+      }
+
+      // 2. Fetch all student docs to match student record
+      let matchedStudent: any = null;
+      try {
+        const studentsSnapshot = await getDocs(collection(db, 'students'));
+        const studentDocs = studentsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        matchedStudent = studentDocs.find((s: any) => {
+          const sEmail = String(s.email || '').trim().toLowerCase();
+          const sStudentId = String(s.studentId || '').trim().toLowerCase();
+          const sName = String(s.name || '').trim().toLowerCase();
+          const userStudentId = String(userData?.studentId || '').trim().toLowerCase();
+          const userName = String(userData?.name || '').trim().toLowerCase();
+
+          if (normalizedEmail && sEmail && sEmail === normalizedEmail) return true;
+          if (userStudentId && sStudentId && sStudentId === userStudentId) return true;
+          if (userName && sName && sName === userName) return true;
+          return false;
+        });
+      } catch (e) {
+        console.warn('Could not query students collection:', e);
+      }
+
+      // Assemble unified student data
+      const mergedStudentData = {
+        name: userData?.name || matchedStudent?.name || (normalizedEmail ? normalizedEmail.split('@')[0] : 'Student'),
+        studentId: userData?.studentId || matchedStudent?.studentId || 'N/A',
+        grade: userData?.grade || matchedStudent?.grade || 'N/A',
+        email: userData?.email || matchedStudent?.email || userEmail,
+        role: userData?.role || 'student',
+        ...(matchedStudent || {}),
+        ...(userData || {}),
+      };
+      setStudentData(mergedStudentData);
+
+      // Collect all possible identifiers for this student to match visits
+      const possibleIds = new Set<string>();
+      if (matchedStudent?.id) possibleIds.add(String(matchedStudent.id).trim().toLowerCase());
+      if (matchedStudent?.studentId) possibleIds.add(String(matchedStudent.studentId).trim().toLowerCase());
+      if (userData?.studentId) possibleIds.add(String(userData.studentId).trim().toLowerCase());
+
+      const possibleNames = new Set<string>();
+      if (mergedStudentData.name) possibleNames.add(mergedStudentData.name.trim().toLowerCase());
+      if (userData?.name) possibleNames.add(String(userData.name).trim().toLowerCase());
+      if (matchedStudent?.name) possibleNames.add(String(matchedStudent.name).trim().toLowerCase());
+
+      const possibleEmails = new Set<string>();
+      if (normalizedEmail) possibleEmails.add(normalizedEmail);
+      if (mergedStudentData.email) possibleEmails.add(String(mergedStudentData.email).trim().toLowerCase());
+
+      // 3. Load clinic visits
+      const visitsSnapshot = await getDocs(collection(db, 'clinicVisits'));
+      const allVisits = visitsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as any[];
+
+      const studentVisits = allVisits.filter((v: any) => {
+        const vStudentId = String(v.studentId || '').trim().toLowerCase();
+        const vStudentName = String(v.studentName || '').trim().toLowerCase();
+        const vEmail = String(v.studentEmail || v.email || '').trim().toLowerCase();
+
+        if (vStudentId && possibleIds.has(vStudentId)) return true;
+        if (vStudentName && possibleNames.has(vStudentName)) return true;
+        if (vEmail && possibleEmails.has(vEmail)) return true;
+        return false;
+      }) as Visit[];
+
+      // Sort by most recent first
+      studentVisits.sort((a, b) => {
+        const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : (a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.timestamp || a.createdAt || 0));
+        const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : (b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.timestamp || b.createdAt || 0));
+        return dateB.getTime() - dateA.getTime();
+      });
+
+      setVisits(studentVisits);
     } catch (error) {
       console.error('Error loading student data:', error);
     } finally {
@@ -132,6 +199,27 @@ export function StudentDashboard({ userEmail }: StudentDashboardProps) {
   }, {} as Record<string, number>);
 
   const mostCommonSymptom = Object.entries(commonSymptoms).sort((a, b) => b[1] - a[1])[0];
+
+  const displayedVisits = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return visits;
+    return visits.filter(v => {
+      const symptoms = String(v.symptoms || '').toLowerCase();
+      const treatment = String(v.treatment || '').toLowerCase();
+      const notes = String(v.notes || '').toLowerCase();
+      const nurse = String(v.nurseName || v.nurseEmail || '').toLowerCase();
+      const dateStr = v.timestamp?.toDate
+        ? v.timestamp.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase()
+        : '';
+      return (
+        symptoms.includes(term) ||
+        treatment.includes(term) ||
+        notes.includes(term) ||
+        nurse.includes(term) ||
+        dateStr.includes(term)
+      );
+    });
+  }, [visits, searchTerm]);
 
   return (
     <div className="space-y-8 animate-fadeIn">
@@ -219,13 +307,40 @@ export function StudentDashboard({ userEmail }: StudentDashboardProps) {
       </div>
 
       {/* Visit History */}
-      <Card className="border-slate-200 bg-white shadow-lg">
-        <CardHeader className="border-b border-slate-100">
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-ndkc-green" />
-            Visit History
-          </CardTitle>
-          <p className="mt-1 text-sm text-slate-600">Your complete clinic visit records</p>
+      <Card className="border-slate-200 bg-white shadow-lg overflow-hidden">
+        <CardHeader className="border-b border-slate-100 pb-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-ndkc-green" />
+                Visit History
+              </CardTitle>
+              <p className="mt-1 text-sm text-slate-500">Your complete clinic visit records</p>
+            </div>
+
+            {/* Search Bar */}
+            {visits.length > 0 && (
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  type="text"
+                  placeholder="Search symptoms, notes..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="h-9 pl-9 pr-8 text-sm border-slate-200 focus-visible:ring-ndkc-green"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                    title="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="p-6">
           {loading ? (
@@ -239,9 +354,22 @@ export function StudentDashboard({ userEmail }: StudentDashboardProps) {
               <p className="mt-3 text-slate-600">No clinic visits recorded yet</p>
               <p className="text-sm text-slate-500">Your visit history will appear here</p>
             </div>
+          ) : displayedVisits.length === 0 ? (
+            <div className="text-center py-12">
+              <Search className="mx-auto h-10 w-10 text-slate-300" />
+              <p className="mt-3 text-slate-700 font-semibold">No visits found matching "{searchTerm}"</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSearchTerm('')}
+                className="mt-3 text-xs"
+              >
+                Clear Search
+              </Button>
+            </div>
           ) : (
             <div className="space-y-4">
-              {visits.map((visit, index) => (
+              {displayedVisits.map((visit, index) => (
                 <div
                   key={visit.id}
                   className="group rounded-xl border border-slate-200 bg-gradient-to-br from-white to-slate-50/30 p-6 transition-all hover:shadow-md"

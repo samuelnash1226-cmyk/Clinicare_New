@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { collection, getDocs, query, orderBy, where, limit, startAfter, Timestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -50,7 +50,13 @@ interface Filters {
   branchFilter: 'all' | BedBranch;
 }
 
-export function VisitHistory() {
+interface VisitHistoryProps {
+  userRole?: string;
+  userEmail?: string;
+  studentIds?: string[];
+}
+
+export function VisitHistory({ userRole = 'admin', userEmail = '', studentIds = [] }: VisitHistoryProps = {}) {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -160,7 +166,7 @@ export function VisitHistory() {
         }
       });
 
-      // Map resolved school IDs onto visits and apply client-side filters
+      // Map resolved school IDs onto visits
       let visitsData = rawVisits.map(visit => {
         const resolvedSchoolId = (visit.studentId && !isFirestoreDocId(visit.studentId))
           ? visit.studentId
@@ -169,7 +175,64 @@ export function VisitHistory() {
           ...visit,
           studentId: resolvedSchoolId || (isFirestoreDocId(visit.studentId) ? undefined : visit.studentId)
         };
-      }).filter(visit => {
+      });
+
+      // Role-based filtering if logged in as student/personnel or parent
+      const normEmail = (userEmail || auth.currentUser?.email || '').trim().toLowerCase();
+      if (userRole === 'student' || userRole === 'personnel') {
+        const matchedStudent = studentsSnapshot.docs.find(d => {
+          const data = d.data();
+          return normEmail && data.email && String(data.email).trim().toLowerCase() === normEmail;
+        });
+        const targetSchoolId = String(matchedStudent?.data()?.studentId || '').trim().toLowerCase();
+        const targetDocId = matchedStudent?.id?.toLowerCase();
+        const targetName = String(matchedStudent?.data()?.name || auth.currentUser?.displayName || '').trim().toLowerCase();
+
+        visitsData = visitsData.filter(v => {
+          const vStudentId = String(v.studentId || '').trim().toLowerCase();
+          const vStudentName = String(v.studentName || '').trim().toLowerCase();
+          const vEmail = String((v as any).studentEmail || (v as any).email || '').trim().toLowerCase();
+
+          return (targetSchoolId && vStudentId === targetSchoolId) ||
+                 (targetDocId && vStudentId === targetDocId) ||
+                 (targetName && vStudentName === targetName) ||
+                 (normEmail && (vEmail === normEmail || vStudentName === normEmail.split('@')[0]));
+        });
+      } else if (userRole === 'parent') {
+        const childDocIds = new Set(studentIds.map(id => id.toLowerCase()));
+        const childSchoolIds = new Set<string>();
+        const childNames = new Set<string>();
+
+        studentsSnapshot.docs.forEach(d => {
+          const data = d.data();
+          const pEmail = String(data.parentEmail || '').trim().toLowerCase();
+          const docId = d.id.toLowerCase();
+          const schoolId = String(data.studentId || '').trim().toLowerCase();
+          const name = String(data.name || '').trim().toLowerCase();
+
+          if (childDocIds.has(docId) || (schoolId && childDocIds.has(schoolId)) || (normEmail && pEmail === normEmail)) {
+            childDocIds.add(docId);
+            if (schoolId) childSchoolIds.add(schoolId);
+            if (name) childNames.add(name);
+          }
+        });
+
+        visitsData = visitsData.filter(v => {
+          const vPEmail = String((v as any).parentEmail || '').trim().toLowerCase();
+          if (normEmail && vPEmail && vPEmail === normEmail) return true;
+
+          const vStudentId = String(v.studentId || '').trim().toLowerCase();
+          if (vStudentId && (childDocIds.has(vStudentId) || childSchoolIds.has(vStudentId))) return true;
+
+          const vStudentName = String(v.studentName || '').trim().toLowerCase();
+          if (vStudentName && childNames.has(vStudentName)) return true;
+
+          return false;
+        });
+      }
+
+      // Apply client-side filters
+      visitsData = visitsData.filter(visit => {
         // Search filter (School ID, Student Name, Symptoms, Grade, Nurse Name)
         const term = filters.searchTerm.trim().toLowerCase();
         const searchMatch = !term ||

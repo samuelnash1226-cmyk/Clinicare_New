@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, deleteDoc, doc, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import {
@@ -27,6 +27,13 @@ import {
   Filter,
   Layers,
   HeartPulse,
+  History,
+  ArrowDownRight,
+  ArrowUpRight,
+  Clock,
+  User,
+  RefreshCw,
+  Tag,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -38,6 +45,27 @@ import {
 } from './ui/select';
 import { motion, AnimatePresence } from 'motion/react';
 
+interface InventoryTransaction {
+  id: string;
+  itemId?: string;
+  itemName?: string;
+  brand?: string;
+  genericName?: string;
+  type: string;
+  quantityChanged?: number;
+  quantityDispensed?: number;
+  unit?: string;
+  stockBefore?: number;
+  stockAfter?: number;
+  dispensedBy?: string;
+  patientName?: string;
+  studentId?: string;
+  grade?: string;
+  visitId?: string;
+  timestamp?: any;
+  createdAt?: any;
+}
+
 interface InventoryDashboardProps {
   userEmail: string;
 }
@@ -46,6 +74,11 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [filteredItems, setFilteredItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeView, setActiveView] = useState<'catalog' | 'transactions'>('catalog');
+  const [transactions, setTransactions] = useState<InventoryTransaction[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
+  const [transactionSearch, setTransactionSearch] = useState('');
+  const [transactionTypeFilter, setTransactionTypeFilter] = useState<'all' | 'dispensed' | 'restocked'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'medicine' | 'equipment' | 'consumables' | 'medical supplies'>('all');
   const [branchFilter, setBranchFilter] = useState<'all' | 'IBED' | 'SHS' | 'College'>('all');
@@ -62,6 +95,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
 
   const [formData, setFormData] = useState({
     name: '',
+    brand: '',
     category: 'medicine' as 'medicine' | 'equipment' | 'consumables' | 'medical supplies',
     stockQuantity: 0,
     expirationDate: '',
@@ -71,11 +105,71 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
   useEffect(() => {
     loadInventory();
     loadStats();
+    loadTransactions();
   }, []);
+
+  const loadTransactions = async () => {
+    try {
+      setLoadingTransactions(true);
+      const snap = await getDocs(collection(db, 'inventoryTransactions'));
+      const list = snap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+      })) as InventoryTransaction[];
+
+      // Sort with Recent transactions first
+      list.sort((a, b) => {
+        const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : (a.createdAt?.toDate ? a.createdAt.toDate().getTime() : new Date(a.timestamp || a.createdAt || 0).getTime());
+        const timeB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : (b.createdAt?.toDate ? b.createdAt.toDate().getTime() : new Date(b.timestamp || b.createdAt || 0).getTime());
+        return timeB - timeA;
+      });
+
+      setTransactions(list);
+    } catch (error) {
+      console.error('Error loading inventory transactions:', error);
+    } finally {
+      setLoadingTransactions(false);
+    }
+  };
+
+  const getLastUsed = (item: InventoryItem): Date | null => {
+    // 1. Direct item property if recorded
+    if (item.lastUsed) {
+      const d = item.lastUsed.toDate ? item.lastUsed.toDate() : new Date(item.lastUsed);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    // 2. Look in recent transactions for this item
+    if (transactions && transactions.length > 0) {
+      const tx = transactions.find(t =>
+        (t.itemId === item.id || (t.itemName && t.itemName.toLowerCase() === item.name.toLowerCase())) &&
+        (t.type === 'dispensed' || (t.quantityDispensed && t.quantityDispensed > 0))
+      );
+      if (tx) {
+        const d = tx.timestamp?.toDate
+          ? tx.timestamp.toDate()
+          : tx.createdAt?.toDate
+          ? tx.createdAt.toDate()
+          : new Date(tx.timestamp || tx.createdAt || 0);
+        if (!isNaN(d.getTime()) && d.getTime() > 0) return d;
+      }
+    }
+
+    // 3. For equipment, check borrowedBy
+    if (item.borrowedBy && item.borrowedBy.length > 0) {
+      const lastBorrow = item.borrowedBy[item.borrowedBy.length - 1];
+      if (lastBorrow && lastBorrow.date) {
+        const d = lastBorrow.date.toDate ? lastBorrow.date.toDate() : new Date(lastBorrow.date);
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
+
+    return null;
+  };
 
   useEffect(() => {
     filterItems();
-  }, [items, searchQuery, categoryFilter, branchFilter]);
+  }, [items, searchQuery, categoryFilter, branchFilter, transactions]);
 
   const loadInventory = async () => {
     try {
@@ -105,7 +199,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
   };
 
   const filterItems = () => {
-    let filtered = items;
+    let filtered = [...items];
 
     // Filter by branch
     if (branchFilter !== 'all') {
@@ -117,12 +211,26 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
       filtered = filtered.filter(item => item.category === categoryFilter);
     }
 
-    // Filter by search query
+    // Filter by search query (matches name or brand)
     if (searchQuery) {
+      const q = searchQuery.toLowerCase();
       filtered = filtered.filter(item =>
-        item.name.toLowerCase().includes(searchQuery.toLowerCase())
+        item.name.toLowerCase().includes(q) ||
+        (item.brand && item.brand.toLowerCase().includes(q))
       );
     }
+
+    // Sort items: Put latest used items at the very top!
+    filtered.sort((a, b) => {
+      const dateA = getLastUsed(a);
+      const dateB = getLastUsed(b);
+      const timeA = dateA ? dateA.getTime() : 0;
+      const timeB = dateB ? dateB.getTime() : 0;
+      if (timeA !== timeB) {
+        return timeB - timeA; // Latest used at the very top
+      }
+      return a.name.localeCompare(b.name);
+    });
 
     setFilteredItems(filtered);
   };
@@ -130,7 +238,9 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
   const handleAddItem = async () => {
     try {
       const itemData: Omit<InventoryItem, 'id' | 'createdAt' | 'updatedAt'> = {
-        name: formData.name,
+        name: formData.name.trim(),
+        brand: formData.brand.trim() || undefined,
+        genericName: formData.name.trim(),
         category: formData.category,
         branch: formData.branch as 'IBED' | 'SHS' | 'College',
         stockQuantity: formData.stockQuantity,
@@ -150,6 +260,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
       resetForm();
       loadInventory();
       loadStats();
+      loadTransactions();
     } catch (error: any) {
       toast.error(error.message || 'Failed to add item');
     }
@@ -160,7 +271,9 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
 
     try {
       const updates: Partial<InventoryItem> = {
-        name: formData.name,
+        name: formData.name.trim(),
+        brand: formData.brand.trim() || undefined,
+        genericName: formData.name.trim(),
         category: formData.category,
         branch: formData.branch as 'IBED' | 'SHS' | 'College',
         stockQuantity: formData.stockQuantity,
@@ -176,6 +289,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
       resetForm();
       loadInventory();
       loadStats();
+      loadTransactions();
     } catch (error: any) {
       toast.error(error.message || 'Failed to update item');
     }
@@ -189,6 +303,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
       toast.success('Item deleted successfully!');
       loadInventory();
       loadStats();
+      loadTransactions();
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete item');
     }
@@ -213,6 +328,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
     
     setFormData({
       name: item.name,
+      brand: item.brand || '',
       category: item.category,
       stockQuantity: item.stockQuantity,
       expirationDate: expirationDateString,
@@ -223,12 +339,31 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
   const resetForm = () => {
     setFormData({
       name: '',
+      brand: '',
       category: 'medicine',
       stockQuantity: 0,
       expirationDate: '',
       branch: '',
     });
   };
+
+  const filteredTransactions = useMemo(() => {
+    let filtered = transactions;
+    if (transactionTypeFilter !== 'all') {
+      filtered = filtered.filter(tx => tx.type === transactionTypeFilter);
+    }
+    if (transactionSearch) {
+      const q = transactionSearch.toLowerCase();
+      filtered = filtered.filter(tx =>
+        (tx.itemName || '').toLowerCase().includes(q) ||
+        (tx.brand || '').toLowerCase().includes(q) ||
+        (tx.genericName || '').toLowerCase().includes(q) ||
+        (tx.patientName || '').toLowerCase().includes(q) ||
+        (tx.dispensedBy || '').toLowerCase().includes(q)
+      );
+    }
+    return filtered;
+  }, [transactions, transactionTypeFilter, transactionSearch]);
 
   const handleReturnItem = async (itemId: string, studentId: string, visitId: string) => {
     try {
@@ -351,6 +486,34 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
         </Card>
       </div>
 
+      {/* View Mode Toggle */}
+      <div className="bg-slate-100 p-1.5 rounded-2xl flex w-fit gap-1 shadow-inner border border-slate-200">
+        <button
+          onClick={() => setActiveView('catalog')}
+          className={`px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 flex items-center gap-2 cursor-pointer ${
+            activeView === 'catalog'
+              ? 'bg-white text-slate-900 shadow-md font-semibold'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+          }`}
+        >
+          <Package className="h-4 w-4" />
+          Inventory Catalog
+        </button>
+        <button
+          onClick={() => { setActiveView('transactions'); loadTransactions(); }}
+          className={`px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 flex items-center gap-2 cursor-pointer ${
+            activeView === 'transactions'
+              ? 'bg-white text-slate-900 shadow-md font-semibold'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+          }`}
+        >
+          <History className="h-4 w-4" />
+          Recent Transactions
+        </button>
+      </div>
+
+      {activeView === 'catalog' ? (
+      <>
       {/* Branch Partition Tab Buttons */}
       <div className="bg-slate-100 p-1.5 rounded-2xl flex w-full md:w-fit gap-1 shadow-inner border border-slate-200">
         {(['all', 'IBED', 'SHS', 'College'] as const).map((branch) => (
@@ -435,6 +598,7 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                 <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Category</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Stock Quantity</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Expiration</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Last Used</th>
                 <th className="px-6 py-4 text-right text-sm font-semibold text-slate-900">Actions</th>
               </tr>
             </thead>
@@ -477,7 +641,17 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                           )}
                         </div>
                         <div className="flex flex-col">
-                          <span className="font-medium text-slate-900">{item.name}</span>
+                          {item.brand ? (
+                            <>
+                              <span className="font-semibold text-slate-900 flex items-center gap-1">
+                                <Tag className="h-3 w-3 text-blue-500" />
+                                {item.brand}
+                              </span>
+                              <span className="text-xs text-slate-500">{item.name}</span>
+                            </>
+                          ) : (
+                            <span className="font-medium text-slate-900">{item.name}</span>
+                          )}
                           <span className="text-[11px] text-slate-500 mt-0.5">
                             Branch: <span className="font-medium text-slate-700">{item.branch || 'N/A'}</span>
                           </span>
@@ -563,6 +737,33 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                       )}
                     </td>
                     <td className="px-6 py-4">
+                      {(() => {
+                        const lastUsedDate = getLastUsed(item);
+                        if (!lastUsedDate) {
+                          return <span className="text-xs text-slate-400 italic">Not yet used</span>;
+                        }
+                        const dateStr = lastUsedDate.toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        });
+                        const timeStr = lastUsedDate.toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true,
+                        });
+                        return (
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-slate-900">{dateStr}</span>
+                            <span className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                              <Clock className="h-3 w-3 text-slate-400" />
+                              {timeStr}
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-6 py-4">
                       <div className="flex items-center justify-end gap-2">
                         <Button
                           variant="ghost"
@@ -589,6 +790,158 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
           </table>
         </div>
       </Card>
+      </>
+      ) : (
+      <>
+        {/* Transactions search and filter */}
+        <div className="flex flex-col md:flex-row gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-slate-400" />
+            <Input
+              placeholder="Search by medicine, brand, student, or nurse..."
+              value={transactionSearch}
+              onChange={(e) => setTransactionSearch(e.target.value)}
+              className="pl-10 h-12 border-slate-200 bg-white shadow-sm"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant={transactionTypeFilter === 'all' ? 'default' : 'outline'}
+              onClick={() => setTransactionTypeFilter('all')}
+              className={transactionTypeFilter === 'all' ? 'bg-ndkc-green hover:bg-ndkc-green/90' : ''}
+            >
+              All
+            </Button>
+            <Button
+              variant={transactionTypeFilter === 'dispensed' ? 'default' : 'outline'}
+              onClick={() => setTransactionTypeFilter('dispensed')}
+              className={transactionTypeFilter === 'dispensed' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+            >
+              <ArrowDownRight className="mr-1 h-4 w-4" />
+              Dispensed
+            </Button>
+            <Button
+              variant={transactionTypeFilter === 'restocked' ? 'default' : 'outline'}
+              onClick={() => setTransactionTypeFilter('restocked')}
+              className={transactionTypeFilter === 'restocked' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+            >
+              <ArrowUpRight className="mr-1 h-4 w-4" />
+              Restocked
+            </Button>
+          </div>
+        </div>
+
+        {/* Transactions Table */}
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-900">Date & Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-900">Medicine</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-900">Qty</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-900">Patient / Student</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-900">Dispensed By</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-900">Stock Left</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-900">Type</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {loadingTransactions ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto text-ndkc-green" />
+                      <p className="text-slate-600 mt-2">Loading transactions...</p>
+                    </td>
+                  </tr>
+                ) : filteredTransactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center">
+                      <History className="h-12 w-12 mx-auto text-slate-300" />
+                      <p className="text-slate-600 mt-2">No transactions found</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredTransactions.map((tx) => {
+                    const txDate = tx.timestamp?.toDate
+                      ? tx.timestamp.toDate()
+                      : tx.createdAt?.toDate
+                      ? tx.createdAt.toDate()
+                      : new Date(tx.timestamp || tx.createdAt || 0);
+                    const dateStr = txDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    const timeStr = txDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                    const isDispensed = tx.type === 'dispensed';
+                    const qty = tx.quantityDispensed || Math.abs(tx.quantityChanged || 0);
+
+                    return (
+                      <tr key={tx.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium text-slate-900">{dateStr}</span>
+                            <span className="text-xs text-slate-500 flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              {timeStr}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col">
+                            {tx.brand ? (
+                              <>
+                                <span className="text-sm font-semibold text-slate-900 flex items-center gap-1">
+                                  <Tag className="h-3 w-3 text-blue-500" />
+                                  {tx.brand}
+                                </span>
+                                <span className="text-xs text-slate-500">{tx.genericName || tx.itemName}</span>
+                              </>
+                            ) : (
+                              <span className="text-sm font-medium text-slate-900">{tx.genericName || tx.itemName}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge className={isDispensed ? 'bg-red-100 text-red-700 border-red-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}>
+                            {isDispensed ? '-' : '+'}{qty} {tx.unit || 'pcs'}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {tx.patientName ? (
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-slate-900 flex items-center gap-1">
+                                <User className="h-3 w-3 text-slate-400" />
+                                {tx.patientName}
+                              </span>
+                              {tx.grade && <span className="text-xs text-slate-500">{tx.grade}</span>}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-sm">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm text-slate-700">{tx.dispensedBy || '—'}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm font-semibold text-slate-900">{tx.stockAfter ?? '—'}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="outline" className={isDispensed ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}>
+                            {isDispensed ? (
+                              <span className="flex items-center gap-1"><ArrowDownRight className="h-3 w-3" />Dispensed</span>
+                            ) : (
+                              <span className="flex items-center gap-1"><ArrowUpRight className="h-3 w-3" />Restocked</span>
+                            )}
+                          </Badge>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </>
+      )}
 
       {/* Add/Edit Modal */}
       <AnimatePresence>
@@ -650,6 +1003,20 @@ export function InventoryDashboard({ userEmail }: InventoryDashboardProps) {
                     className="h-12"
                   />
                 </div>
+
+                {formData.category === 'medicine' && (
+                  <div className="space-y-2">
+                    <Label htmlFor="brand">Brand Name</Label>
+                    <Input
+                      id="brand"
+                      placeholder="e.g., Biogesic, Neozep, Advil"
+                      value={formData.brand}
+                      onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
+                      className="h-12"
+                    />
+                    <p className="text-xs text-slate-500">Optional. The commercial brand name of the medicine.</p>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   <Label htmlFor="category">Category *</Label>

@@ -261,7 +261,10 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
     }
 
     return filtered
-      .filter((medicine) => medicine.name.toLowerCase().includes(query))
+      .filter((medicine) =>
+        medicine.name.toLowerCase().includes(query) ||
+        (medicine.brand && medicine.brand.toLowerCase().includes(query))
+      )
       .slice(0, 5);
   };
 
@@ -370,6 +373,7 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
         {
           id: medicine.id!,
           name: medicine.name,
+          brand: medicine.brand || '',
           quantity: 1,
           unit: medicine.unit,
           availableStock: medicine.stockQuantity,
@@ -523,7 +527,12 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
             userEmail
           );
         } else {
-          await dispenseMedicine(medicine.id, medicine.quantity, userEmail);
+          await dispenseMedicine(medicine.id, medicine.quantity, userEmail, {
+            studentId: formData.studentId,
+            studentName: formData.studentName,
+            grade: formData.grade,
+            visitId: generatedVisitId,
+          });
         }
       }
 
@@ -936,7 +945,16 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                               )}
                             </div>
                             <div>
-                              <p className="font-medium text-slate-900">{medicine.name}</p>
+                              <p className="font-medium text-slate-900">
+                                {medicine.brand ? (
+                                  <>
+                                    <span className="font-bold text-emerald-800">{medicine.brand}</span>
+                                    <span className="text-slate-500 font-normal ml-1">({medicine.name})</span>
+                                  </>
+                                ) : (
+                                  medicine.name
+                                )}
+                              </p>
                               <div className="flex items-center gap-1.5 mt-0.5">
                                 <Badge variant="outline" className="capitalize text-[10px] px-1.5 py-0 border-slate-200">
                                   {medicine.category}
@@ -998,7 +1016,16 @@ export function AddVisitForm({ onClose, onSuccess, userEmail }: AddVisitFormProp
                     )}
                   </div>
                   <div className="flex-1">
-                    <p className="font-medium text-slate-900">{medicine.name}</p>
+                    <p className="font-medium text-slate-900">
+                      {(medicine as any).brand ? (
+                        <>
+                          <span className="font-bold text-emerald-800">{(medicine as any).brand}</span>
+                          <span className="text-slate-500 font-normal ml-1">({medicine.name})</span>
+                        </>
+                      ) : (
+                        medicine.name
+                      )}
+                    </p>
                     <p className="text-xs text-slate-500">
                       Available: {medicine.availableStock} {medicine.unit}
                     </p>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { collection, getDocs, updateDoc, doc, query, where, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -8,7 +8,32 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Checkbox } from './ui/checkbox';
-import { Search, User, Mail, AlertCircle, Heart, Pencil, Syringe, Plus, X, Activity, Briefcase } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
+import {
+  Search,
+  User,
+  Mail,
+  AlertCircle,
+  Heart,
+  Pencil,
+  Syringe,
+  Plus,
+  X,
+  Activity,
+  Briefcase,
+  Filter,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
+  SlidersHorizontal,
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 
 interface Personnel {
@@ -69,6 +94,10 @@ interface PersonnelCardProps {
 export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [healthFilter, setHealthFilter] = useState<'all' | 'allergies' | 'conditions' | 'healthy'>('all');
+  const [bmiFilter, setBmiFilter] = useState<'all' | 'underweight' | 'normal' | 'overweight' | 'obese'>('all');
+  const [bpFilter, setBpFilter] = useState<'all' | 'recorded' | 'elevated' | 'none'>('all');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -177,36 +206,268 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
     }
   };
 
-  const filteredPersonnel = personnel.filter(p =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const hasActiveFilters = () => {
+    return (
+      searchTerm !== '' ||
+      healthFilter !== 'all' ||
+      bmiFilter !== 'all' ||
+      bpFilter !== 'all'
+    );
+  };
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (healthFilter !== 'all') count++;
+    if (bmiFilter !== 'all') count++;
+    if (bpFilter !== 'all') count++;
+    return count;
+  }, [healthFilter, bmiFilter, bpFilter]);
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setHealthFilter('all');
+    setBmiFilter('all');
+    setBpFilter('all');
+  };
+
+  const filteredPersonnel = useMemo(() => {
+    return personnel.filter(p => {
+      // Health profile filter
+      if (healthFilter === 'allergies') {
+        if (!p.allergies || p.allergies.length === 0) return false;
+      } else if (healthFilter === 'conditions') {
+        if (!p.medicalConditions || p.medicalConditions.length === 0) return false;
+      } else if (healthFilter === 'healthy') {
+        const hasAllergies = p.allergies && p.allergies.length > 0;
+        const hasConditions = p.medicalConditions && p.medicalConditions.length > 0;
+        if (hasAllergies || hasConditions) return false;
+      }
+
+      // BMI classification filter
+      if (bmiFilter !== 'all') {
+        const bmiValue = p.bmi ?? computeBMI(String(p.height || ''), String(p.weight || ''));
+        if (!bmiValue) return false;
+        const cat = getBMICategory(bmiValue).label.toLowerCase();
+        if (cat !== bmiFilter.toLowerCase()) return false;
+      }
+
+      // Blood pressure filter
+      if (bpFilter === 'recorded') {
+        if (!p.bloodPressure || !p.bloodPressure.trim()) return false;
+      } else if (bpFilter === 'none') {
+        if (p.bloodPressure && p.bloodPressure.trim()) return false;
+      } else if (bpFilter === 'elevated') {
+        if (!p.bloodPressure) return false;
+        const parts = p.bloodPressure.split('/');
+        const sys = parseInt(parts[0]);
+        const dia = parseInt(parts[1]);
+        if (isNaN(sys) || isNaN(dia) || (sys < 130 && dia < 80)) return false;
+      }
+
+      // Search term
+      if (searchTerm) {
+        const q = searchTerm.toLowerCase();
+        const matchesName = (p.name || '').toLowerCase().includes(q);
+        const matchesId = (p.studentId || '').toLowerCase().includes(q);
+        const matchesEmail = (p.email || '').toLowerCase().includes(q);
+        const matchesAllergies = (p.allergies || []).some(a => a.toLowerCase().includes(q));
+        const matchesConditions = (p.medicalConditions || []).some(c => c.toLowerCase().includes(q));
+        if (!matchesName && !matchesId && !matchesEmail && !matchesAllergies && !matchesConditions) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [personnel, healthFilter, bmiFilter, bpFilter, searchTerm]);
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div>
-        <h1 className="text-slate-900">Personnel Cards</h1>
-        <p className="mt-2 text-slate-600">
-          View and manage medical information and health records for school personnel
-        </p>
+      {/* Header Info & Filter Counter */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div>
+          <h1 className="text-slate-900">Personnel Cards</h1>
+          <p className="mt-1 text-slate-600">
+            View and manage medical information and health records for school personnel
+          </p>
+        </div>
+        {userRole !== 'personnel' && (
+          <Badge variant="outline" className="w-fit bg-rose-50 text-rose-800 border-rose-200 font-semibold px-3 py-1">
+            <Briefcase className="h-3.5 w-3.5 mr-1 text-rose-600" />
+            Showing {filteredPersonnel.length} of {personnel.length} Personnel
+          </Badge>
+        )}
       </div>
 
+      {/* Search and Filters Bar */}
       {userRole !== 'personnel' && (
-        <Card className="border-slate-200 bg-white shadow-sm">
-          <CardContent className="pt-6">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              <Input
-                placeholder="Search by name, employee ID, or email..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 h-12 border-2 focus:border-ndkc-green"
-              />
-            </div>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+            <Input
+              placeholder="Search by name, employee ID, email, allergies, or conditions..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 h-12 border-slate-200 bg-white shadow-sm focus:border-ndkc-green"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          <Button
+            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+            variant={showAdvancedFilters || activeFilterCount > 0 ? 'default' : 'outline'}
+            className={`h-12 px-5 gap-2 ${
+              showAdvancedFilters || activeFilterCount > 0
+                ? 'bg-ndkc-green hover:bg-ndkc-green/90 text-white'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Filters
+            {activeFilterCount > 0 && (
+              <Badge className="ml-1 bg-white text-ndkc-green hover:bg-white text-xs px-1.5 py-0.2">
+                {activeFilterCount}
+              </Badge>
+            )}
+            {showAdvancedFilters ? <ChevronUp className="h-4 w-4 ml-1" /> : <ChevronDown className="h-4 w-4 ml-1" />}
+          </Button>
+
+          {hasActiveFilters() && (
+            <Button
+              onClick={resetFilters}
+              variant="outline"
+              className="h-12 px-4 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+              title="Reset all filters"
+            >
+              <RotateCcw className="h-4 w-4 mr-1.5" />
+              Reset
+            </Button>
+          )}
+        </div>
       )}
+
+      {/* Advanced Filters Panel */}
+      <AnimatePresence>
+        {userRole !== 'personnel' && showAdvancedFilters && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+          >
+            <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-white shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2 text-base text-slate-900">
+                    <Filter className="h-4 w-4 text-ndkc-green" />
+                    Advanced Personnel Filters
+                  </CardTitle>
+                  {hasActiveFilters() && (
+                    <Button
+                      onClick={resetFilters}
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:bg-red-50 h-8 text-xs"
+                    >
+                      <X className="h-3.5 w-3.5 mr-1" />
+                      Reset All Filters
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-0">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Health Profile Filter */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">Health Profile</Label>
+                    <Select value={healthFilter} onValueChange={(v: any) => setHealthFilter(v)}>
+                      <SelectTrigger className="bg-white h-10">
+                        <SelectValue placeholder="All Health Profiles" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Health Profiles</SelectItem>
+                        <SelectItem value="allergies">Has Known Allergies</SelectItem>
+                        <SelectItem value="conditions">Has Medical Conditions</SelectItem>
+                        <SelectItem value="healthy">No Known Conditions / Allergies</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* BMI Status Filter */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">BMI Classification</Label>
+                    <Select value={bmiFilter} onValueChange={(v: any) => setBmiFilter(v)}>
+                      <SelectTrigger className="bg-white h-10">
+                        <SelectValue placeholder="All BMIs" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All BMI Classifications</SelectItem>
+                        <SelectItem value="underweight">Underweight (&lt; 18.5)</SelectItem>
+                        <SelectItem value="normal">Normal Weight (18.5 - 24.9)</SelectItem>
+                        <SelectItem value="overweight">Overweight (25 - 29.9)</SelectItem>
+                        <SelectItem value="obese">Obese (30+)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Blood Pressure Filter */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">Blood Pressure</Label>
+                    <Select value={bpFilter} onValueChange={(v: any) => setBpFilter(v)}>
+                      <SelectTrigger className="bg-white h-10">
+                        <SelectValue placeholder="All" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="recorded">Has Recorded BP</SelectItem>
+                        <SelectItem value="elevated">Elevated (130/80+)</SelectItem>
+                        <SelectItem value="none">No BP Recorded</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Active Filter Pills */}
+                {hasActiveFilters() && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-emerald-100">
+                    <span className="text-xs font-medium text-slate-500 mr-1">Active:</span>
+                    {healthFilter !== 'all' && (
+                      <Badge variant="outline" className="bg-white text-slate-800 border-slate-300 gap-1 text-xs py-0.5">
+                        Health: {healthFilter === 'allergies' ? 'Allergies' : healthFilter === 'conditions' ? 'Conditions' : 'No Conditions'}
+                        <button onClick={() => setHealthFilter('all')} className="hover:text-red-600"><X className="h-3 w-3" /></button>
+                      </Badge>
+                    )}
+                    {bmiFilter !== 'all' && (
+                      <Badge variant="outline" className="bg-white text-slate-800 border-slate-300 gap-1 text-xs py-0.5">
+                        BMI: {bmiFilter}
+                        <button onClick={() => setBmiFilter('all')} className="hover:text-red-600"><X className="h-3 w-3" /></button>
+                      </Badge>
+                    )}
+                    {bpFilter !== 'all' && (
+                      <Badge variant="outline" className="bg-white text-slate-800 border-slate-300 gap-1 text-xs py-0.5">
+                        BP: {bpFilter === 'recorded' ? 'Recorded' : bpFilter === 'elevated' ? 'Elevated BP' : 'No BP'}
+                        <button onClick={() => setBpFilter('all')} className="hover:text-red-600"><X className="h-3 w-3" /></button>
+                      </Badge>
+                    )}
+                    {searchTerm && (
+                      <Badge variant="outline" className="bg-white text-slate-800 border-slate-300 gap-1 text-xs py-0.5">
+                        Search: "{searchTerm}"
+                        <button onClick={() => setSearchTerm('')} className="hover:text-red-600"><X className="h-3 w-3" /></button>
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

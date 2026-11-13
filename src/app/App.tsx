@@ -23,6 +23,8 @@ import { VisitHistory } from "./components/VisitHistory";
 import { InventoryDashboard } from "./components/InventoryDashboard";
 import { BedManagement } from "./components/BedManagement";
 import { LocalBackupManager } from "./components/LocalBackupManager";
+import { DoctorsField } from "./components/DoctorsField";
+import { DoctorPrescriptionsView } from "./components/DoctorPrescriptionsView";
 import { OfflineIndicator } from "./components/OfflineIndicator";
 import { Toaster } from "./components/ui/sonner";
 import { Loader2, Heart } from "lucide-react";
@@ -40,26 +42,7 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    // Initialize Firestore collections
-    initializeFirestore();
-
-    // Initialize EmailJS configuration
-    initializeEmailJS().catch((err) => {
-      console.warn(
-        "EmailJS initialization error (non-critical):",
-        err,
-      );
-    });
-
-    // Initialize PhilSMS configuration
-    initializeFMCSMS().catch((err) => {
-      console.warn(
-        "PhilSMS initialization error (non-critical):",
-        err,
-      );
-    });
-
-    // Listen for auth state changes
+    // Listen for auth state changes (settings are only initialized by Admin accounts to avoid permission errors)
     const unsubscribe = onAuthStateChanged(
       auth,
       async (user) => {
@@ -102,8 +85,8 @@ export default function App() {
 
         // If admin, ensure email and sms settings are seeded in Firestore
         if (userData.role === "admin") {
-          initializeEmailJS().catch(() => {});
-          initializeFMCSMS().catch(() => {});
+          initializeEmailJS().catch(() => { });
+          initializeFMCSMS().catch(() => { });
         }
 
         // Set initial view based on role
@@ -214,7 +197,7 @@ export default function App() {
           {/* Loading text */}
           <div className="space-y-2">
             <p className="text-slate-900">
-               Loading ClinicCare...
+              Loading ClinicCare...
             </p>
             <p className="text-sm text-slate-500">
               Initializing health management system
@@ -295,13 +278,32 @@ export default function App() {
                 />
               )}
 
-            {currentView === "history" && <VisitHistory />}
+            {currentView === "history" && (
+              <VisitHistory
+                userRole={userRole}
+                userEmail={user.email || ""}
+                studentIds={studentIds}
+              />
+            )}
 
             {currentView === "nurse" && (
               <NurseDashboard
                 key={refreshKey}
                 onAddVisit={() => setShowAddVisit(true)}
                 userEmail={user.email || ""}
+              />
+            )}
+
+            {currentView === "doctorsfield" &&
+              (userRole === "admin" || userRole === "nurse") && (
+                <DoctorsField />
+              )}
+
+            {currentView === "prescriptions" && (
+              <DoctorPrescriptionsView
+                userRole={userRole}
+                userEmail={user.email || ""}
+                studentIds={studentIds}
               />
             )}
 

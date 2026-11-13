@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, Settings, Activity, LogOut, User, ChevronRight, Users, GraduationCap, ChevronsLeft, ChevronsRight, Calendar, Package, IdCard, Syringe, BedDouble, DatabaseBackup } from 'lucide-react';
+import { LayoutDashboard, FileText, Settings, Activity, LogOut, User, ChevronRight, Users, GraduationCap, ChevronsLeft, ChevronsRight, Calendar, Package, IdCard, Syringe, BedDouble, DatabaseBackup, Stethoscope, Pill } from 'lucide-react';
 import { signOut } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -47,6 +47,7 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
     ? [
       { id: 'dashboard', label: 'Analytics', icon: LayoutDashboard, description: 'Overview & Reports' },
       { id: 'users', label: 'User Management', icon: Users, description: 'Manage Accounts' },
+      { id: 'doctorsfield', label: "Doctor's Field", icon: Stethoscope, description: "Doctor's Orders & Rx" },
       { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
       { id: 'personnelcards', label: 'Personnel Cards', icon: IdCard, description: 'Personnel Information' },
       { id: 'nurse', label: 'Clinic Visits', icon: Activity, description: 'Patient Records' },
@@ -59,16 +60,19 @@ export function Sidebar({ currentView, onViewChange, userRole }: SidebarProps) {
     : userRole === 'parent'
       ? [
         { id: 'parent', label: 'Health Records', icon: FileText, description: 'Student Health' },
+        { id: 'prescriptions', label: "Doctor's Prescriptions", icon: Pill, description: 'Prescribed Medications' },
         { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
         { id: 'settings', label: 'Settings', icon: Settings, description: 'Account Settings' },
       ]
       : (userRole === 'student' || userRole === 'personnel')
         ? [
           { id: 'student', label: userRole === 'personnel' ? 'Personnel Health' : 'My Health', icon: userRole === 'personnel' ? Syringe : GraduationCap, description: 'Health Records' },
+          { id: 'prescriptions', label: "Doctor's Prescriptions", icon: Pill, description: 'Prescribed Medications' },
           { id: 'settings', label: 'Settings', icon: Settings, description: 'Account Settings' },
         ]
         : [
           { id: 'nurse', label: 'Dashboard', icon: LayoutDashboard, description: 'Clinic Management' },
+          { id: 'doctorsfield', label: "Doctor's Field", icon: Stethoscope, description: "Doctor's Orders & Rx" },
           { id: 'studentcards', label: 'Student Cards', icon: IdCard, description: 'Student Information' },
           { id: 'personnelcards', label: 'Personnel Cards', icon: IdCard, description: 'Personnel Information' },
           { id: 'beds', label: 'Bed Management', icon: BedDouble, description: 'IBED, SHS & College Beds' },

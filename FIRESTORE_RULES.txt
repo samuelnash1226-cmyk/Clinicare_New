@@ -219,6 +219,20 @@ service cloud.firestore {
     }
 
     // ===========================
+    // PRESCRIPTIONS COLLECTION
+    // ===========================
+    match /prescriptions/{prescriptionId} {
+      // Authenticated users can read prescriptions (Nurses, Admins, Students, Parents)
+      allow read: if isAuthenticated();
+
+      // Admins and nurses can issue/update prescriptions
+      allow create, update: if isAdminOrNurse();
+
+      // Only admins can delete prescriptions
+      allow delete: if isAdmin();
+    }
+
+    // ===========================
     // CATCH-ALL (DENY EVERYTHING ELSE)
     // ===========================
     match /{document=**} {
