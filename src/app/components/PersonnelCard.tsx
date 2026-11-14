@@ -128,14 +128,42 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
       setLoading(true);
       let personnelData: Personnel[] = [];
       
+      const [studentsSnap, usersSnap] = await Promise.all([
+        getDocs(query(collection(db, 'students'), where('grade', '==', 'Personnel'))),
+        getDocs(query(collection(db, 'users'), where('role', '==', 'personnel')))
+      ]);
+
+      // Create a map from users collection for personnelType & departmentBranch
+      const userMetaMap: Record<string, { personnelType?: string; departmentBranch?: string }> = {};
+      usersSnap.docs.forEach(d => {
+        const u = d.data();
+        const emailKey = (u.email || '').trim().toLowerCase();
+        const empIdKey = (u.studentId || '').trim().toLowerCase();
+        const meta = {
+          personnelType: u.personnelType,
+          departmentBranch: u.departmentBranch
+        };
+        if (emailKey) userMetaMap[emailKey] = meta;
+        if (empIdKey) userMetaMap[empIdKey] = meta;
+      });
+
+      personnelData = studentsSnap.docs.map(doc => {
+        const data = doc.data();
+        const emailKey = (data.email || '').trim().toLowerCase();
+        const empIdKey = (data.studentId || '').trim().toLowerCase();
+        const meta = userMetaMap[emailKey] || userMetaMap[empIdKey] || {};
+
+        return {
+          id: doc.id,
+          ...data,
+          personnelType: data.personnelType || meta.personnelType || undefined,
+          departmentBranch: data.departmentBranch || meta.departmentBranch || undefined,
+        } as Personnel;
+      });
+
       if (userRole === 'personnel') {
-        const q = query(collection(db, 'students'), where('email', '==', userEmail), where('grade', '==', 'Personnel'));
-        const snapshot = await getDocs(q);
-        personnelData = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Personnel[];
-      } else {
-        const q = query(collection(db, 'students'), where('grade', '==', 'Personnel'));
-        const snapshot = await getDocs(q);
-        personnelData = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as Personnel[];
+        const normUserEmail = (userEmail || '').trim().toLowerCase();
+        personnelData = personnelData.filter(p => (p.email || '').trim().toLowerCase() === normUserEmail);
       }
 
       setPersonnel(personnelData);
@@ -256,14 +284,17 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
     return personnel.filter(p => {
       // Type filter (Teaching / Non-Teaching)
       if (typeFilter !== 'all') {
-        const pType = (p.personnelType || 'teaching').toLowerCase();
-        if (pType !== typeFilter.toLowerCase()) return false;
+        const rawType = (p.personnelType || '').toLowerCase().trim();
+        const normalizedType = rawType.includes('non') ? 'non-teaching' : (rawType.includes('teach') ? 'teaching' : 'unassigned');
+        
+        if (typeFilter === 'non-teaching' && normalizedType !== 'non-teaching') return false;
+        if (typeFilter === 'teaching' && normalizedType !== 'teaching') return false;
       }
 
       // Department Branch filter (IBED / SHS / College)
       if (branchFilter !== 'all') {
-        const pBranch = (p.departmentBranch || 'College').toUpperCase();
-        if (pBranch !== branchFilter.toUpperCase()) return false;
+        const rawBranch = (p.departmentBranch || '').toUpperCase().trim();
+        if (rawBranch !== branchFilter.toUpperCase()) return false;
       }
 
       // Health profile filter
@@ -313,7 +344,7 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
 
       return true;
     });
-  }, [personnel, healthFilter, bmiFilter, bpFilter, searchTerm]);
+  }, [personnel, typeFilter, branchFilter, healthFilter, bmiFilter, bpFilter, searchTerm]);
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -424,16 +455,15 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
                       <Briefcase className="h-3.5 w-3.5 text-rose-600" />
                       Personnel Classification
                     </Label>
-                    <Select value={typeFilter} onValueChange={(v: any) => setTypeFilter(v)}>
-                      <SelectTrigger className="bg-white h-10 border-slate-200">
-                        <SelectValue placeholder="All Classifications" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Classifications (Teaching & Non-Teaching)</SelectItem>
-                        <SelectItem value="teaching">Teaching Personnel (Faculty / Teachers)</SelectItem>
-                        <SelectItem value="non-teaching">Non-Teaching Personnel (Staff / Admin)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <select
+                      value={typeFilter}
+                      onChange={(e) => setTypeFilter(e.target.value as any)}
+                      className="w-full h-10 px-3 text-sm bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-ndkc-green"
+                    >
+                      <option value="all">All Classifications (Teaching & Non-Teaching)</option>
+                      <option value="teaching">Teaching Personnel (Faculty / Teachers)</option>
+                      <option value="non-teaching">Non-Teaching Personnel (Staff / Admin)</option>
+                    </select>
                   </div>
 
                   {/* Branch Department Filter */}
@@ -442,17 +472,16 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
                       <Building2 className="h-3.5 w-3.5 text-emerald-600" />
                       Department / Campus Branch
                     </Label>
-                    <Select value={branchFilter} onValueChange={(v: any) => setBranchFilter(v)}>
-                      <SelectTrigger className="bg-white h-10 border-slate-200">
-                        <SelectValue placeholder="All Departments" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Departments (IBED, SHS, College)</SelectItem>
-                        <SelectItem value="IBED">IBED (Integrated Basic Education)</SelectItem>
-                        <SelectItem value="SHS">SHS (Senior High School)</SelectItem>
-                        <SelectItem value="College">College / Higher Education</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <select
+                      value={branchFilter}
+                      onChange={(e) => setBranchFilter(e.target.value as any)}
+                      className="w-full h-10 px-3 text-sm bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-ndkc-green"
+                    >
+                      <option value="all">All Departments (IBED, SHS, College)</option>
+                      <option value="IBED">IBED (Integrated Basic Education)</option>
+                      <option value="SHS">SHS (Senior High School)</option>
+                      <option value="College">College / Higher Education</option>
+                    </select>
                   </div>
                 </div>
 
@@ -460,50 +489,47 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
                   {/* Health Profile Filter */}
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-slate-700">Health Profile</Label>
-                    <Select value={healthFilter} onValueChange={(v: any) => setHealthFilter(v)}>
-                      <SelectTrigger className="bg-white h-10">
-                        <SelectValue placeholder="All Health Profiles" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Health Profiles</SelectItem>
-                        <SelectItem value="allergies">Has Known Allergies</SelectItem>
-                        <SelectItem value="conditions">Has Medical Conditions</SelectItem>
-                        <SelectItem value="healthy">No Known Conditions / Allergies</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <select
+                      value={healthFilter}
+                      onChange={(e) => setHealthFilter(e.target.value as any)}
+                      className="w-full h-10 px-3 text-sm bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-ndkc-green"
+                    >
+                      <option value="all">All Health Profiles</option>
+                      <option value="allergies">Has Known Allergies</option>
+                      <option value="conditions">Has Medical Conditions</option>
+                      <option value="healthy">No Known Conditions / Allergies</option>
+                    </select>
                   </div>
 
                   {/* BMI Status Filter */}
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-slate-700">BMI Classification</Label>
-                    <Select value={bmiFilter} onValueChange={(v: any) => setBmiFilter(v)}>
-                      <SelectTrigger className="bg-white h-10">
-                        <SelectValue placeholder="All BMIs" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All BMI Classifications</SelectItem>
-                        <SelectItem value="underweight">Underweight (&lt; 18.5)</SelectItem>
-                        <SelectItem value="normal">Normal Weight (18.5 - 24.9)</SelectItem>
-                        <SelectItem value="overweight">Overweight (25 - 29.9)</SelectItem>
-                        <SelectItem value="obese">Obese (30+)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <select
+                      value={bmiFilter}
+                      onChange={(e) => setBmiFilter(e.target.value as any)}
+                      className="w-full h-10 px-3 text-sm bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-ndkc-green"
+                    >
+                      <option value="all">All BMI Classifications</option>
+                      <option value="underweight">Underweight (&lt; 18.5)</option>
+                      <option value="normal">Normal Weight (18.5 - 24.9)</option>
+                      <option value="overweight">Overweight (25 - 29.9)</option>
+                      <option value="obese">Obese (30+)</option>
+                    </select>
                   </div>
 
                   {/* Blood Pressure Filter */}
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold text-slate-700">Blood Pressure</Label>
-                    <Select value={bpFilter} onValueChange={(v: any) => setBpFilter(v)}>
-                      <SelectTrigger className="bg-white h-10">
-                        <SelectValue placeholder="All" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All</SelectItem>
-                        <SelectItem value="recorded">Has Recorded BP</SelectItem>
-                        <SelectItem value="elevated">Elevated (130/80+)</SelectItem>
-                        <SelectItem value="none">No BP Recorded</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <select
+                      value={bpFilter}
+                      onChange={(e) => setBpFilter(e.target.value as any)}
+                      className="w-full h-10 px-3 text-sm bg-white border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-ndkc-green"
+                    >
+                      <option value="all">All</option>
+                      <option value="recorded">Has Recorded BP</option>
+                      <option value="elevated">Elevated (130/80+)</option>
+                      <option value="none">No BP Recorded</option>
+                    </select>
                   </div>
                 </div>
 
@@ -511,6 +537,18 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
                 {hasActiveFilters() && (
                   <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-emerald-100">
                     <span className="text-xs font-medium text-slate-500 mr-1">Active:</span>
+                    {typeFilter !== 'all' && (
+                      <Badge variant="outline" className="bg-white text-rose-800 border-rose-300 gap-1 text-xs py-0.5 font-medium">
+                        Type: {typeFilter === 'teaching' ? 'Teaching' : 'Non-Teaching'}
+                        <button onClick={() => setTypeFilter('all')} className="hover:text-red-600"><X className="h-3 w-3" /></button>
+                      </Badge>
+                    )}
+                    {branchFilter !== 'all' && (
+                      <Badge variant="outline" className="bg-white text-emerald-800 border-emerald-300 gap-1 text-xs py-0.5 font-medium">
+                        Branch: {branchFilter}
+                        <button onClick={() => setBranchFilter('all')} className="hover:text-red-600"><X className="h-3 w-3" /></button>
+                      </Badge>
+                    )}
                     {healthFilter !== 'all' && (
                       <Badge variant="outline" className="bg-white text-slate-800 border-slate-300 gap-1 text-xs py-0.5">
                         Health: {healthFilter === 'allergies' ? 'Allergies' : healthFilter === 'conditions' ? 'Conditions' : 'No Conditions'}
@@ -576,16 +614,24 @@ export function PersonnelCard({ userRole, userEmail }: PersonnelCardProps) {
                         <CardTitle className="text-lg text-slate-900">{p.name}</CardTitle>
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           <span className="text-xs text-slate-500 font-mono">EMP: {p.studentId}</span>
-                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium ${
-                            (p.personnelType || 'teaching') === 'teaching'
-                              ? 'bg-blue-50 text-blue-700 border-blue-200'
-                              : 'bg-amber-50 text-amber-700 border-amber-200'
-                          }`}>
-                            {(p.personnelType || 'teaching') === 'teaching' ? 'Teaching' : 'Non-Teaching'}
-                          </Badge>
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 font-medium">
-                            {p.departmentBranch || 'College'}
-                          </Badge>
+                          {p.personnelType ? (
+                            <Badge variant="outline" className={`text-[10px] px-1.5 py-0 font-medium ${
+                              (p.personnelType || '').toLowerCase().includes('non')
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : 'bg-blue-50 text-blue-700 border-blue-200'
+                            }`}>
+                              {(p.personnelType || '').toLowerCase().includes('non') ? 'Non-Teaching' : 'Teaching'}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-slate-50 text-slate-500 border-slate-200 font-medium">
+                              Unclassified
+                            </Badge>
+                          )}
+                          {p.departmentBranch ? (
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 font-medium">
+                              {p.departmentBranch}
+                            </Badge>
+                          ) : null}
                         </div>
                       </div>
                     </div>
